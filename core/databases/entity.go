@@ -1,4 +1,4 @@
-package mysql
+package databases
 
 import (
 	"github.com/go-xorm/xorm"

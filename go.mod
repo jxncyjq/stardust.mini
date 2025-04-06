@@ -1,6 +1,6 @@
 module github.com/jxncyjq/stardust.mini
 
-go 1.22.0
+go 1.22.5
 
 require (
 	github.com/BurntSushi/toml v1.5.0
@@ -8,7 +8,7 @@ require (
 	github.com/go-sql-driver/mysql v1.9.1
 	github.com/go-xorm/xorm v0.7.9
 	github.com/lib/pq v1.10.9
-	gopkg.in/yaml.v2 v2.2.2
+	gopkg.in/yaml.v2 v2.4.0
 	xorm.io/core v0.7.3
 )
 

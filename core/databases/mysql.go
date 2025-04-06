@@ -1,4 +1,4 @@
-package mysql
+package databases
 
 import (
 	"bytes"
@@ -127,12 +127,12 @@ func GetConnStr(c map[string]interface{}, t string) (string, error) {
 	switch t {
 	case "mysql":
 		{
-			tmpl := `{{.user}}:{{.passwd}}@tcp({{.host}}:{{.port}})/{{.dbname}}?charset=utf8mb4&parseTime=true&loc=Local`
+			tmpl := `{{.user}}:{{.pwd}}@tcp({{.host}}:{{.port}})/{{.db}}?charset=utf8mb4&parseTime=true&loc=Local`
 			tpr, err = template.New("config").Parse(tmpl)
 		}
 	case "postgres":
 		{
-			tmpl := `host={{.host}} port={{.port}} user={{.user}} dbname={{.dbname}} password={{.passwd}} sslmode=disable`
+			tmpl := `host={{.host}} port={{.port}} user={{.user}} dbname={{.db}} password={{.pwd}} sslmode=disable`
 			tpr, err = template.New("config").Parse(tmpl)
 		}
 	default:

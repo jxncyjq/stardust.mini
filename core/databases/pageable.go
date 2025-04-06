@@ -1,4 +1,4 @@
-package mysql
+package databases
 
 type Pageable interface {
 	Skip() int
