@@ -51,7 +51,10 @@ type OrmBaseDao struct {
 }
 
 func NewBaseDao(conn DBInterface) BaseDao {
-	return &OrmBaseDao{conn: conn}
+	return &OrmBaseDao{
+		conn:    conn,
+		session: conn.NewSession(),
+	}
 }
 
 func (m *OrmBaseDao) Session() *xorm.Session {
