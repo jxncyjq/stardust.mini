@@ -2,27 +2,33 @@ package databases
 
 import (
 	"bytes"
-	"encoding/json"
 	"errors"
-	_ "github.com/go-sql-driver/mysql"
-	"github.com/go-xorm/xorm"
-	"github.com/jxncyjq/stardust.mini/core/conf"
-	_ "github.com/lib/pq"
 	"log"
 	"text/template"
-	"xorm.io/core"
+
+	"gorm.io/driver/mysql"
+	"gorm.io/driver/postgres"
+	"gorm.io/gorm"
 )
 
-// DBInterface 数据库接口
-type DBInterface interface {
-	xorm.EngineInterface
-}
+// DBInterface 数据库接口 - 直接使用gorm.DB
+type DBInterface *gorm.DB
 
-func NewConn(c *Config) (DBInterface, error) {
-	if c.UseMasterSlave {
-		return NewMSConn(c)
+func NewDBInterface(dbConfig *Config) DBInterface {
+	var dbConn DBInterface
+	var err error
+	if dbConfig.UseMasterSlave {
+		dbConn, err = NewMSConn(dbConfig)
+		if err != nil {
+			panic("Failed to initialize master-slave database connection: " + err.Error())
+		}
+	} else {
+		dbConn, err = NewSingleConn(dbConfig)
+		if err != nil {
+			panic("Failed to initialize single database connection: " + err.Error())
+		}
 	}
-	return NewSingleConn(c)
+	return dbConn
 }
 
 // NewSingleConn 初始化数据库连接
@@ -34,24 +40,33 @@ func NewSingleConn(c *Config) (DBInterface, error) {
 	if nil == c || "" == c.Master {
 		return nil, errors.New("config or config.Url can not be null")
 	}
-	var conn *xorm.Engine
+
+	var conn *gorm.DB
 	var err error
+
 	switch c.DbType {
 	case "mysql":
-		conn, err = xorm.NewEngine("mysql", c.Master)
+		conn, err = gorm.Open(mysql.Open(c.Master), &gorm.Config{})
 	case "postgres":
-		conn, err = xorm.NewEngine("postgres", c.Master)
+		conn, err = gorm.Open(postgres.Open(c.Master), &gorm.Config{})
 	default:
-		conn, err = xorm.NewEngine("mysql", c.Master)
+		conn, err = gorm.Open(mysql.Open(c.Master), &gorm.Config{})
 	}
-	if nil != err || nil == conn {
+
+	if err != nil {
 		log.Println("failed to initializing db connection:", err)
 		return nil, err
 	}
-	conn.SetMapper(core.GonicMapper{})
-	conn.ShowSQL(c.ShowSql)
-	conn.SetMaxIdleConns(c.MaxIdle)
-	conn.SetMaxOpenConns(c.MaxConn)
+
+	// 获取底层sql.DB以设置连接池参数
+	sqlDB, err := conn.DB()
+	if err != nil {
+		return nil, err
+	}
+
+	sqlDB.SetMaxIdleConns(c.MaxIdle)
+	sqlDB.SetMaxOpenConns(c.MaxConn)
+
 	return conn, nil
 }
 
@@ -60,61 +75,21 @@ func NewMSConn(c *Config) (DBInterface, error) {
 	if nil == c || "" == c.Master {
 		return nil, errors.New("config or config.Url can not be null")
 	}
-	conns := make([]string, len(c.Slaves)+1)
-	conns[0] = c.Master
-	for i, v := range c.Slaves {
-		conns[i+1] = v
-		if "" == v {
-			return nil, errors.New("config or config.Url can not be null")
-		}
-	}
 
-	var group *xorm.EngineGroup
-	var err error
-	switch c.DbType {
-	case "mysql":
-		group, err = xorm.NewEngineGroup("mysql", c.Master)
-	case "postgres":
-		group, err = xorm.NewEngineGroup("postgres", c.Master)
-	default:
-		group, err = xorm.NewEngineGroup("mysql", c.Master)
-	}
+	// GORM 本身不直接支持主从配置，这里只创建主库连接
+	// 如果需要主从支持，可以考虑使用GORM的插件或自定义实现
+	log.Println("Warning: Master-Slave configuration not fully supported in GORM, using master connection only")
 
-	if nil != err || nil == group {
-		log.Printf("failed to initializing db connection: %s\n", err)
-		return nil, err
-	}
-
-	group.SetMapper(core.GonicMapper{})
-	group.ShowSQL(c.ShowSql)
-	group.SetMaxIdleConns(c.MaxIdle)
-	group.SetMaxOpenConns(c.MaxConn)
-	return group, nil
+	return NewSingleConn(c)
 }
 
-var dbConn DBInterface
-
-func InitDB(appConfig conf.AppCfg) {
-	var dbConfig Config
-	data, err := json.Marshal(appConfig.Database)
-	if err != nil {
-		panic("init db failed to marshal appConfig.Database")
-	}
-	err = json.Unmarshal(data, &dbConfig)
-	if err != nil {
-		panic("init db failed to unmarshal appConfig.Database")
-	}
-
-	dbConn, _ = NewConn(&dbConfig)
-}
-
-func GetMySqlDB() DBInterface {
-	return dbConn
-}
-
-func GetDao() BaseDao {
-	return NewBaseDao(dbConn)
-}
+//func GetMySqlDB() DBInterface {
+//	return dbConn
+//}
+//
+//func GetDao() BaseDao {
+//	return NewBaseDao(dbConn)
+//}
 
 // GetConnStr 检查传入字典和类型，返回数据库连接字符串，
 // @params c map[string]interface{}{ "host":"127.0.0.1","port":3306,"user":"root","passwd":"123456","dbname":"csv"}

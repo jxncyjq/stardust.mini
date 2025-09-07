@@ -4,6 +4,7 @@ import "errors"
 
 // Config 数据库连接配置
 type Config struct {
+	Name           string   `json:"name" hcl:"name"`
 	ShowSql        bool     `json:"show_sql" hcl:"show_sql"`
 	MaxIdle        int      `json:"max_idle" hcl:"max_idle"`
 	MaxConn        int      `json:"max_conn" hcl:"max_conn"`
@@ -15,8 +16,8 @@ type Config struct {
 
 var ErrGetEmpty = errors.New("found 0 rows")
 var ErrUpdatedEmpty = errors.New("update affected 0 rows")
-var ErrDeletedEmpty = errors.New("update affected 0 rows")
-var ErrInsertedEmpty = errors.New("update affected 0 rows")
+var ErrDeletedEmpty = errors.New("delete affected 0 rows")
+var ErrInsertedEmpty = errors.New("insert affected 0 rows")
 var ErrMigrateTableIDEmpty = errors.New("migrate table id nil")
 var ErrMigrateTableNameEmpty = errors.New("migrate table name nil")
 

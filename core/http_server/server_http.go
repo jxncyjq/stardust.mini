@@ -1,0 +1,140 @@
+package httpServer
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"net/http"
+	"net/url"
+
+	"github.com/go-playground/validator/v10"
+	"github.com/jxncyjq/stardust.mini/core/logs"
+	"github.com/jxncyjq/stardust.mini/core/utils"
+	"github.com/labstack/echo/v4"
+	"go.uber.org/zap"
+)
+
+type HttpServer struct {
+	ctx    context.Context
+	addr   string
+	path   string
+	logger *zap.Logger
+	engine *echo.Echo
+	group  map[string]*StarDustGroup
+}
+
+func NewHttpServer(configByte []byte) (*HttpServer, error) {
+	engine := echo.New()
+	config, err := utils.Bytes2Struct[HttpServerConfig](configByte)
+	if err != nil {
+		panic("Failed to parse HTTP server configuration: " + err.Error())
+	}
+	engine.Validator = &CustomValidator{Validator: validator.New()}
+	engine.Use()
+	addr := fmt.Sprintf("%s:%d", config.Address, config.Port)
+	if config.Cors {
+		engine.Use(Cors())
+	}
+	if config.RequestLog {
+		engine.Use(Request())
+	}
+	if config.Access {
+		engine.Use(Access())
+	}
+
+	if config.Path != "" && config.Path[0] != '/' {
+		return nil, errors.New("the http.path must start with a /")
+	}
+
+	srv := &HttpServer{
+		ctx:    context.Background(),
+		logger: logs.GetLogger("httpServer"),
+		engine: engine,
+		group:  make(map[string]*StarDustGroup),
+		addr:   addr,
+		path:   config.Path,
+	}
+	return srv, nil
+}
+
+func (m *HttpServer) Engine() *echo.Echo {
+	return m.engine
+}
+
+func (m *HttpServer) Use(middleware ...echo.MiddlewareFunc) *HttpServer {
+	m.engine.Use(middleware...)
+	return m
+}
+
+func (m *HttpServer) Startup() error {
+	m.logger.Info("http server listened on:", zap.String("addr", m.addr))
+	// 打印路由
+	for _, route := range m.engine.Routes() {
+		m.logger.Info("http route registered:", logs.String("method", route.Method), logs.String("path", route.Path))
+	}
+	m.Engine().Start(m.addr)
+	go func() {
+		<-m.ctx.Done()
+		m.Stop()
+		m.engine.Close()
+	}()
+	return nil
+}
+
+func (m *HttpServer) Stop() {
+	if err := m.engine.Shutdown(m.ctx); err != nil {
+		m.logger.Error("shutdown http server:", zap.Error(err))
+		return
+	}
+}
+
+// Handle registers a new route with the HTTP server.
+func (m *HttpServer) Handle(method string, path string, handler IHandler) {
+
+	path, _ = url.JoinPath(m.path, "api", path)
+
+	m.engine.Add(method, path, handler.GetFunc())
+}
+
+func (m *HttpServer) Internal(method string, path string, handler IHandler) {
+	path, _ = url.JoinPath(m.path, "internal", path)
+	m.engine.Add(method, path, handler.GetFunc())
+}
+
+func (m *HttpServer) AddGroup(path string, middleware ...echo.MiddlewareFunc) {
+	url_path, _ := url.JoinPath(m.path, "api", path)
+	m.group[path] = NewStarDustGroup(path, m.engine.Group(url_path, middleware...))
+	m.logger.Info("http group registered:", logs.String("path", url_path))
+}
+
+func (m *HttpServer) Get(path string, group string, handler IHandler) {
+	if group != "" {
+		if _, exists := m.group[group]; !exists {
+			m.logger.Error("group not found", logs.String("group", group))
+			return
+		}
+		m.group[group].Group.GET(fmt.Sprintf("/%s", path), handler.GetFunc())
+		m.logger.Info("http handler registered to group:", logs.String("path", path), logs.String("prefix", m.group[group].Prefix))
+		return
+	}
+	m.Handle(http.MethodGet, path, handler)
+}
+
+func (m *HttpServer) Post(path string, group string, handler IHandler) {
+	if group != "" {
+		if _, exists := m.group[group]; !exists {
+			m.logger.Error("group not found", zap.String("group", group))
+			return
+		}
+		m.group[group].Group.POST(fmt.Sprintf("/%s", path), handler.GetFunc())
+		m.logger.Info("http handler registered to group:", logs.String("path", path), logs.String("prefix", m.group[group].Prefix))
+		return
+	}
+	m.Handle(http.MethodPost, path, handler)
+}
+
+func (m *HttpServer) AddNativeHandler(method string, path string, handler echo.HandlerFunc) {
+	path, _ = url.JoinPath(m.path, "api", path)
+	m.engine.Add(method, path, handler)
+	m.logger.Info("http native handler registered:", logs.String("method", method), logs.String("path", path))
+}

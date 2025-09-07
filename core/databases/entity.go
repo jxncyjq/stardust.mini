@@ -1,7 +1,7 @@
 package databases
 
 import (
-	"github.com/go-xorm/xorm"
+	"gorm.io/gorm"
 )
 
 type Table interface {
@@ -27,7 +27,7 @@ type Entity interface {
 
 type SessionEntity interface {
 	Entity
-	Session() *xorm.Session
+	DB() *gorm.DB
 	Begin() error
 	Commit() error
 	Rollback() error
@@ -115,8 +115,8 @@ func (e *entity) Get() (has bool, err error) {
 	return e.dao.FindOne(e.objectPtr)
 }
 
-func (e *entity) Session() *xorm.Session {
-	return e.sessionDao.Session()
+func (e *entity) DB() *gorm.DB {
+	return e.sessionDao.DB()
 }
 
 func (e *entity) Begin() error {

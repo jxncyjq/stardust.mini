@@ -2,51 +2,70 @@ package conf
 
 import (
 	"encoding/json"
-	"fmt"
-	"github.com/BurntSushi/toml"
-	"github.com/fatih/color"
-	"gopkg.in/yaml.v2"
 	"os"
-	"path/filepath"
+
+	"github.com/BurntSushi/toml"
 )
 
-type AppCfg struct {
-	Database struct {
-		ShowSql        bool     `json:"show_sql" toml:"show_sql" yaml:"show_sql"`
-		MaxIdle        int      `json:"max_idle" toml:"max_idle" yaml:"max_idle"`
-		MaxConn        int      `json:"max_conn" toml:"max_conn" yaml:"max_conn"`
-		Master         string   `json:"master" toml:"master" yaml:"master"`
-		Slaves         []string `json:"slaves" toml:"slaves" yaml:"slaves"`
-		UseMasterSlave bool     `json:"use_master_slave" toml:"use_master_slave" yaml:"use_master_slave"`
-		DbType         string   `json:"db_type" toml:"db_type" yaml:"db_type"`
-	} `json:"database" toml:"database" yaml:"database"`
+var (
+	config  map[string]interface{}
+	ISDEBUG = true
+)
+
+func Init() {
+	var configPath string
+	configPath = os.Getenv("runConfig")
+	config = make(map[string]interface{})
+	_, err := toml.DecodeFile(configPath, &config)
+	if err != nil {
+		panic(err)
+	}
+	globalInfo, ok := config["global"].(map[string]interface{})
+	if !ok {
+		panic("global configuration is missing in the config file")
+	}
+	// 设置配置的全局变量
+	appName, ok := globalInfo["app_name"].(string)
+	if !ok {
+		panic("app name is missing in the global configuration")
+	}
+	appVersion, ok := globalInfo["app_version"].(string)
+	if !ok {
+		panic("app version is missing in the global configuration")
+	}
+	redisKeyPrefix, ok := globalInfo["redis_key_prefix"].(string)
+	if !ok {
+		panic("redis key prefix is missing in the global configuration")
+	}
+
+	os.Setenv("APP_NAME", appName)
+	os.Setenv("APP_VERSION", appVersion)
+	os.Setenv("REDIS_KEY_PREFIX", redisKeyPrefix)
+
+	// 设置webservice 运行参数
+	webSrv := config["websrv"].(map[string]interface{})
+	port, ok := webSrv["port"].(string)
+	if !ok {
+		port = "10001"
+	}
+	host, ok := webSrv["host"].(string)
+	if !ok {
+		host = "127.0.0.1"
+	}
+	os.Setenv("WEB_PORT", port)
+	os.Setenv("WEB_HOST", host)
 }
 
-func InitCfg(fn string) (*AppCfg, error) {
-	app := &AppCfg{}
-	ext := filepath.Ext(fn)
-
-	data, err := os.ReadFile(fn)
-	if err != nil {
-		return nil, err
+func Get(key string) []byte {
+	if config == nil {
+		Init()
 	}
-
-	switch ext {
-	case ".json":
-		err = json.Unmarshal(data, app)
-	case ".toml":
-		_, err = toml.Decode(string(data), app)
-	case ".yaml", ".yml":
-		err = yaml.Unmarshal(data, app)
-	default:
-		return nil, fmt.Errorf("unsupported file type: %s", ext)
+	if value, exists := config[key]; exists {
+		bytes, err := json.Marshal(value)
+		if err != nil {
+			return nil
+		}
+		return bytes
 	}
-
-	if err != nil {
-		return nil, err
-	}
-
-	color.Red("Configuration file loaded successfully")
-	color.Red(fmt.Sprintf("config %v", app))
-	return app, nil
+	return nil
 }

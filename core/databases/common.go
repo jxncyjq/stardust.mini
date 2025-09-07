@@ -1,7 +1,7 @@
 package databases
 
 import (
-	"github.com/go-xorm/xorm"
+	"gorm.io/gorm"
 )
 
 func DoGet(call func() (bool, error)) error {
@@ -49,29 +49,36 @@ func DoDelete(call func() (int64, error)) error {
 
 type SessionDoctor int
 
-type SessionHandler func(session *xorm.Session) (interface{}, SessionDoctor, error)
+type SessionHandler func(tx *gorm.DB) (interface{}, SessionDoctor, error)
 
 // WarpSession 事务装饰器
 // error 为真事务回滚
 // SessionDoctor 决定回滚还是提交
-// func WarpSession(wrapper SessionWrapper) (interface{}, int, error) {
-func WarpSession(s *xorm.Session, h SessionHandler) (interface{}, int, error) {
-	defer s.Close()
-	if err := s.Begin(); err != nil {
-		return nil, 0, err
+func WarpSession(db *gorm.DB, h SessionHandler) (interface{}, int, error) {
+	tx := db.Begin()
+	if tx.Error != nil {
+		return nil, 0, tx.Error
 	}
-	value, doctor, err := h(s)
+
+	defer func() {
+		if r := recover(); r != nil {
+			tx.Rollback()
+		}
+	}()
+
+	value, doctor, err := h(tx)
 	if err != nil {
+		tx.Rollback()
 		return nil, 0, err
 	}
 
 	if doctor == SessionDoctorCommit {
-		if err2 := s.Commit(); err2 != nil {
-			return nil, 0, err2
+		if err := tx.Commit().Error; err != nil {
+			return nil, 0, err
 		}
 	} else {
-		if err2 := s.Rollback(); err2 != nil {
-			return nil, 0, err2
+		if err := tx.Rollback().Error; err != nil {
+			return nil, 0, err
 		}
 	}
 
