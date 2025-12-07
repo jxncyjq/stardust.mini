@@ -1,105 +1,141 @@
 package jwt
 
 import (
+	"crypto/aes"
 	"crypto/cipher"
-	"crypto/des"
-	"crypto/md5"
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/base64"
-	"strings"
+	"errors"
+	"io"
 )
 
-func getDerivedKey(password string, salt string, count int) ([]byte, []byte) {
-	key := md5.Sum([]byte(password + salt))
+func getDerivedKey(password string, salt []byte, count int) []byte {
+	key := sha256.Sum256(append([]byte(password), salt...))
 	for i := 0; i < count-1; i++ {
-		key = md5.Sum(key[:])
+		key = sha256.Sum256(key[:])
 	}
-	return key[:8], key[8:]
+	return key[:]
 }
 
 func Encrypt(password string, obtenationIterations int, plainText string) (string, error) {
-	salt := make([]byte, 8)
-	_, err := rand.Read(salt)
+	salt := make([]byte, 16)
+	if _, err := rand.Read(salt); err != nil {
+		return "", err
+	}
+
+	key := getDerivedKey(password, salt, obtenationIterations)
+	block, err := aes.NewCipher(key)
 	if err != nil {
 		return "", err
 	}
 
-	encText, err := doEncrypt(password, plainText, salt, obtenationIterations)
+	gcm, err := cipher.NewGCM(block)
 	if err != nil {
 		return "", err
 	}
 
-	return base64.StdEncoding.EncodeToString(append(salt, encText...)), nil
+	nonce := make([]byte, gcm.NonceSize())
+	if _, err := io.ReadFull(rand.Reader, nonce); err != nil {
+		return "", err
+	}
+
+	ciphertext := gcm.Seal(nonce, nonce, []byte(plainText), nil)
+	result := append(salt, ciphertext...)
+	return base64.StdEncoding.EncodeToString(result), nil
 }
 
 func Decrypt(password string, obtenationIterations int, cipherText string) (string, error) {
-	msgBytes, err := base64.StdEncoding.DecodeString(cipherText)
+	data, err := base64.StdEncoding.DecodeString(cipherText)
+	if err != nil {
+		return "", err
+	}
+	if len(data) < 16 {
+		return "", errors.New("ciphertext too short")
+	}
+
+	salt := data[:16]
+	cipherdata := data[16:]
+
+	key := getDerivedKey(password, salt, obtenationIterations)
+	block, err := aes.NewCipher(key)
 	if err != nil {
 		return "", err
 	}
 
-	salt := msgBytes[:8]
-	encText := msgBytes[8:]
-	return doDecrypt(password, encText, salt, obtenationIterations)
+	gcm, err := cipher.NewGCM(block)
+	if err != nil {
+		return "", err
+	}
+
+	if len(cipherdata) < gcm.NonceSize() {
+		return "", errors.New("ciphertext too short")
+	}
+
+	nonce, cipherdata := cipherdata[:gcm.NonceSize()], cipherdata[gcm.NonceSize():]
+	plaintext, err := gcm.Open(nil, nonce, cipherdata, nil)
+	if err != nil {
+		return "", err
+	}
+
+	return string(plaintext), nil
 }
 
-// EncryptWithFixedSalt 加密salt
+// EncryptWithFixedSalt 使用固定salt加密
 func EncryptWithFixedSalt(password string, obtenationIterations int, plainText string, fixedSalt string) (string, error) {
-	salt := make([]byte, 8)
-	copy(salt[:], fixedSalt)
+	salt := make([]byte, 16)
+	copy(salt, fixedSalt)
 
-	encText, err := doEncrypt(password, plainText, salt, obtenationIterations)
+	key := getDerivedKey(password, salt, obtenationIterations)
+	block, err := aes.NewCipher(key)
 	if err != nil {
 		return "", err
 	}
-	return base64.StdEncoding.EncodeToString(encText), nil
+
+	gcm, err := cipher.NewGCM(block)
+	if err != nil {
+		return "", err
+	}
+
+	nonce := make([]byte, gcm.NonceSize())
+	if _, err := io.ReadFull(rand.Reader, nonce); err != nil {
+		return "", err
+	}
+
+	ciphertext := gcm.Seal(nonce, nonce, []byte(plainText), nil)
+	return base64.StdEncoding.EncodeToString(ciphertext), nil
 }
 
-// DecryptWithFixedSalt 解开salt
+// DecryptWithFixedSalt 使用固定salt解密
 func DecryptWithFixedSalt(password string, obtenationIterations int, cipherText string, fixedSalt string) (string, error) {
-	msgBytes, err := base64.StdEncoding.DecodeString(cipherText)
+	data, err := base64.StdEncoding.DecodeString(cipherText)
 	if err != nil {
 		return "", err
 	}
 
-	salt := make([]byte, 8)
-	copy(salt[:], fixedSalt)
-	encText := msgBytes[:]
-	return doDecrypt(password, encText, salt, obtenationIterations)
-}
+	salt := make([]byte, 16)
+	copy(salt, fixedSalt)
 
-func doEncrypt(password, plainText string, salt []byte, obtenationIterations int) ([]byte, error) {
-	padNum := byte(8 - len(plainText)%8)
-	for i := byte(0); i < padNum; i++ {
-		plainText += string(padNum)
-	}
-
-	dk, iv := getDerivedKey(password, string(salt), obtenationIterations)
-	block, err := des.NewCipher(dk)
-	if err != nil {
-		return nil, err
-	}
-
-	encrypter := cipher.NewCBCEncrypter(block, iv)
-	encrypted := make([]byte, len(plainText))
-	encrypter.CryptBlocks(encrypted, []byte(plainText))
-
-	return encrypted, nil
-}
-
-func doDecrypt(password string, encText, salt []byte, obtenationIterations int) (string, error) {
-	dk, iv := getDerivedKey(password, string(salt), obtenationIterations)
-	block, err := des.NewCipher(dk)
-
+	key := getDerivedKey(password, salt, obtenationIterations)
+	block, err := aes.NewCipher(key)
 	if err != nil {
 		return "", err
 	}
 
-	decrypter := cipher.NewCBCDecrypter(block, iv)
-	decrypted := make([]byte, len(encText))
-	decrypter.CryptBlocks(decrypted, encText)
+	gcm, err := cipher.NewGCM(block)
+	if err != nil {
+		return "", err
+	}
 
-	decryptedString := strings.TrimRight(string(decrypted), "\x01\x02\x03\x04\x05\x06\x07\x08")
+	if len(data) < gcm.NonceSize() {
+		return "", errors.New("ciphertext too short")
+	}
 
-	return decryptedString, nil
+	nonce, cipherdata := data[:gcm.NonceSize()], data[gcm.NonceSize():]
+	plaintext, err := gcm.Open(nil, nonce, cipherdata, nil)
+	if err != nil {
+		return "", err
+	}
+
+	return string(plaintext), nil
 }

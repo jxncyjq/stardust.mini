@@ -420,6 +420,13 @@ func (m *OrmBaseDao) GetTableMetas(tableName string) ([]map[string]interface{}, 
 func (m *OrmBaseDao) CallProcedure(procName string, args ...interface{}) ([][]map[string]interface{}, error) {
 	db := (*gorm.DB)(m.conn)
 
+	// 验证存储过程名称，防止SQL注入
+	for _, c := range procName {
+		if !((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_' || c == '.') {
+			return nil, fmt.Errorf("invalid procedure name: %s", procName)
+		}
+	}
+
 	// 构建存储过程调用的 SQL 语句
 	placeholders := ""
 	for i := range args {

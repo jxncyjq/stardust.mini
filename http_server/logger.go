@@ -6,7 +6,7 @@ import (
 	"io"
 	"net/http"
 
-	"github.com/jxncyjq/stardust.mini/core/logs"
+	"github.com/jxncyjq/stardust.mini/logs"
 	"github.com/labstack/echo/v4"
 	"go.uber.org/zap"
 )

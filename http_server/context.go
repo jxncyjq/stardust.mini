@@ -3,7 +3,7 @@ package httpServer
 import (
 	"net/http"
 
-	"github.com/jxncyjq/stardust.mini/core/utils"
+	"github.com/jxncyjq/stardust.mini/utils"
 	"github.com/labstack/echo/v4"
 )
 

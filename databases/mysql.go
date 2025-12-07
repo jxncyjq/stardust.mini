@@ -103,7 +103,7 @@ func NewMSConn(c *Config) (DBInterface, error) {
 	}
 
 	// 使用 DBResolver 插件配置读写分离
-	err = conn.Use(dbresolver.Register(dbresolver.Config{
+	err = (*gorm.DB)(conn).Use(dbresolver.Register(dbresolver.Config{
 		Replicas: replicas,
 		Policy:   dbresolver.RandomPolicy{}, // 随机选择从库
 	}).SetMaxIdleConns(c.MaxIdle).SetMaxOpenConns(c.MaxConn))

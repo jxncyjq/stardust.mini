@@ -37,7 +37,6 @@ func Download(url string) ([]byte, error) {
 }
 
 func PerformHTTPRequest(req *http.Request, retryCounts ...int) (*http.Response, error) {
-
 	// 设置重试次数
 	retryCount := 3
 	if len(retryCounts) > 0 && retryCounts[0] > 0 {
@@ -45,12 +44,21 @@ func PerformHTTPRequest(req *http.Request, retryCounts ...int) (*http.Response, 
 	}
 	var err error
 	var resp *http.Response
+	var lastStatusCode int
 	for i := range retryCount {
 		resp, err = client.Do(req)
-		if err == nil && resp.StatusCode == http.StatusOK {
+		if err != nil {
+			// 请求失败，继续重试
+			if i < retryCount-1 {
+				time.Sleep(300 * time.Millisecond)
+			}
+			continue
+		}
+		if resp.StatusCode == http.StatusOK {
 			// 请求成功，返回响应
 			return resp, nil
 		}
+		lastStatusCode = resp.StatusCode
 		resp.Body.Close()
 		// 如果不是最后一次重试，等待一段时间后重试
 		if i < retryCount-1 {
@@ -63,5 +71,5 @@ func PerformHTTPRequest(req *http.Request, retryCounts ...int) (*http.Response, 
 		return nil, fmt.Errorf("failed after %d attempts. Last error: %v", retryCount, err)
 	}
 
-	return nil, fmt.Errorf("failed after %d attempts. (HTTP Status Code: %d)", retryCount, resp.StatusCode)
+	return nil, fmt.Errorf("failed after %d attempts. (HTTP Status Code: %d)", retryCount, lastStatusCode)
 }

@@ -8,8 +8,8 @@ import (
 	"net/url"
 
 	"github.com/go-playground/validator/v10"
-	"github.com/jxncyjq/stardust.mini/core/logs"
-	"github.com/jxncyjq/stardust.mini/core/utils"
+	"github.com/jxncyjq/stardust.mini/logs"
+	"github.com/jxncyjq/stardust.mini/utils"
 	"github.com/labstack/echo/v4"
 	"go.uber.org/zap"
 )
@@ -72,7 +72,11 @@ func (m *HttpServer) Startup() error {
 	for _, route := range m.engine.Routes() {
 		m.logger.Info("http route registered:", logs.String("method", route.Method), logs.String("path", route.Path))
 	}
-	m.Engine().Start(m.addr)
+	go func() {
+		if err := m.Engine().Start(m.addr); err != nil && err != http.ErrServerClosed {
+			m.logger.Error("http server error:", zap.Error(err))
+		}
+	}()
 	go func() {
 		<-m.ctx.Done()
 		m.Stop()

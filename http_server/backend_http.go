@@ -3,8 +3,8 @@ package httpServer
 import (
 	"context"
 
-	"github.com/jxncyjq/stardust.mini/core/logs"
-	"github.com/jxncyjq/stardust.mini/core/utils"
+	"github.com/jxncyjq/stardust.mini/logs"
+	"github.com/jxncyjq/stardust.mini/utils"
 
 	"github.com/labstack/echo/v4"
 	"go.uber.org/zap"

@@ -5,7 +5,7 @@ import (
 	"strings"
 	"time"
 
-	"Lib/logs"
+	"github.com/jxncyjq/stardust.mini/logs"
 
 	"github.com/nats-io/nats.go"
 	"go.uber.org/zap"

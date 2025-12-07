@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/jxncyjq/stardust.mini/core/jwt"
-	"github.com/jxncyjq/stardust.mini/core/redis"
-	"github.com/jxncyjq/stardust.mini/core/utils"
+	"github.com/jxncyjq/stardust.mini/jwt"
+	"github.com/jxncyjq/stardust.mini/redis"
+	"github.com/jxncyjq/stardust.mini/utils"
 	"github.com/labstack/echo/v4"
 )
 

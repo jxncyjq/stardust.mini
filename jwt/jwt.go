@@ -2,8 +2,9 @@ package jwt
 
 import (
 	"fmt"
+	"time"
 
-	jwt "github.com/dgrijalva/jwt-go"
+	jwt "github.com/golang-jwt/jwt/v5"
 )
 
 func JWTDecrypt(tokenString, secret string) (jwt.MapClaims, bool) {
@@ -11,7 +12,6 @@ func JWTDecrypt(tokenString, secret string) (jwt.MapClaims, bool) {
 		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
 			return nil, fmt.Errorf("unexpected signing method")
 		}
-		// secret是加密的密钥
 		return []byte(secret), nil
 	})
 	if err != nil {
@@ -26,20 +26,23 @@ func JWTDecrypt(tokenString, secret string) (jwt.MapClaims, bool) {
 	}
 }
 
+type MyCustomClaims struct {
+	ID    string `json:"id"`
+	Token string `json:"token"`
+	jwt.RegisteredClaims
+}
+
 func JWTEncrypt(id string, myToken string, secret string) string {
-	// secret是加密的密钥
+	return JWTEncryptWithExpiry(id, myToken, secret, 24*time.Hour)
+}
+
+func JWTEncryptWithExpiry(id string, myToken string, secret string, expiry time.Duration) string {
 	mySigningKey := []byte(secret)
-	type MyCustomClaims struct {
-		ID    string `json:"id"`
-		Token string `json:"token"`
-		jwt.StandardClaims
-	}
-	// Create the Claims
 	claims := MyCustomClaims{
 		id,
 		myToken,
-		jwt.StandardClaims{
-			ExpiresAt: 0,
+		jwt.RegisteredClaims{
+			ExpiresAt: jwt.NewNumericDate(time.Now().Add(expiry)),
 			Issuer:    "admin",
 		},
 	}

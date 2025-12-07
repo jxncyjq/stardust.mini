@@ -1,7 +1,7 @@
-package server
+package httpServer
 
 import (
-	"github.com/stardustagi/TopLib/libs/logs"
+	"github.com/jxncyjq/stardust.mini/logs"
 	"go.uber.org/zap"
 )
 

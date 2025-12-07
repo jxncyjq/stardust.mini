@@ -1,14 +1,15 @@
 module github.com/jxncyjq/stardust.mini
 
-go 1.25.0
+go 1.23.0
 
 require (
 	github.com/BurntSushi/toml v1.5.0
 	github.com/bwmarrin/snowflake v0.3.0
-	github.com/dgrijalva/jwt-go v3.2.0+incompatible
 	github.com/go-playground/validator/v10 v10.27.0
 	github.com/goccy/go-json v0.10.5
+	github.com/golang-jwt/jwt/v5 v5.2.1
 	github.com/google/uuid v1.6.0
+	github.com/gorilla/websocket v1.5.3
 	github.com/labstack/echo/v4 v4.13.4
 	github.com/nats-io/nats.go v1.45.0
 	github.com/pkg/errors v0.9.1
