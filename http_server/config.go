@@ -9,6 +9,7 @@ type HttpServerConfig struct {
 	Cors       bool   `json:"cors" yaml:"cors"`               // 是否启用CORS
 	RequestLog bool   `json:"request_log" yaml:"request_log"` // 是否启用请求日志
 	Access     bool   `json:"access" yaml:"access"`           // 是否启用访问日志
+	WorkerID   int64  `json:"worker_id" yaml:"worker_id"`     // Snowflake workerID (0-1023)，用于生成唯一sessionId
 }
 
 func (c *HttpServerConfig) Validate() error {

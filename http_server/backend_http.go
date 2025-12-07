@@ -3,10 +3,9 @@ package httpServer
 import (
 	"context"
 
+	"github.com/gin-gonic/gin"
 	"github.com/jxncyjq/stardust.mini/logs"
 	"github.com/jxncyjq/stardust.mini/utils"
-
-	"github.com/labstack/echo/v4"
 	"go.uber.org/zap"
 )
 
@@ -34,7 +33,7 @@ func NewBackend(config []byte) (*Backend, error) {
 	}, nil
 }
 
-func (m *Backend) AddGroup(group string, middleware ...echo.MiddlewareFunc) {
+func (m *Backend) AddGroup(group string, middleware ...gin.HandlerFunc) {
 	m.httpServer.AddGroup(group, middleware...)
 }
 
@@ -50,7 +49,7 @@ func (m *Backend) AddHandler(method, path string, h IHandler) {
 	m.httpServer.Handle(method, path, h)
 }
 
-func (m *Backend) AddNativeHandler(method string, path string, handler echo.HandlerFunc) {
+func (m *Backend) AddNativeHandler(method string, path string, handler gin.HandlerFunc) {
 	m.httpServer.AddNativeHandler(method, path, handler)
 }
 

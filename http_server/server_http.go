@@ -8,10 +8,12 @@ import (
 	"net/url"
 	"time"
 
+	"github.com/gin-gonic/gin"
+	"github.com/gin-gonic/gin/binding"
 	"github.com/go-playground/validator/v10"
 	"github.com/jxncyjq/stardust.mini/logs"
 	"github.com/jxncyjq/stardust.mini/utils"
-	"github.com/labstack/echo/v4"
+	"github.com/jxncyjq/stardust.mini/uuid"
 	"go.uber.org/zap"
 )
 
@@ -20,18 +22,29 @@ type HttpServer struct {
 	addr   string
 	path   string
 	logger *zap.Logger
-	engine *echo.Echo
+	engine *gin.Engine
+	server *http.Server
 	group  map[string]*StarDustGroup
 }
 
 func NewHttpServer(configByte []byte) (*HttpServer, error) {
-	engine := echo.New()
+	gin.SetMode(gin.ReleaseMode)
+	engine := gin.New()
+	engine.Use(gin.Recovery())
+
 	config, err := utils.Bytes2Struct[HttpServerConfig](configByte)
 	if err != nil {
 		panic("Failed to parse HTTP server configuration: " + err.Error())
 	}
-	engine.Validator = &CustomValidator{Validator: validator.New()}
-	engine.Use()
+
+	// 初始化 workerID，用于生成唯一 sessionId
+	uuid.InitWorker(config.WorkerID)
+
+	// 设置自定义验证器
+	if v, ok := binding.Validator.Engine().(*validator.Validate); ok {
+		_ = v // validator is ready
+	}
+
 	addr := fmt.Sprintf("%s:%d", config.Address, config.Port)
 	if config.Cors {
 		engine.Use(Cors())
@@ -58,11 +71,11 @@ func NewHttpServer(configByte []byte) (*HttpServer, error) {
 	return srv, nil
 }
 
-func (m *HttpServer) Engine() *echo.Echo {
+func (m *HttpServer) Engine() *gin.Engine {
 	return m.engine
 }
 
-func (m *HttpServer) Use(middleware ...echo.MiddlewareFunc) *HttpServer {
+func (m *HttpServer) Use(middleware ...gin.HandlerFunc) *HttpServer {
 	m.engine.Use(middleware...)
 	return m
 }
@@ -73,15 +86,20 @@ func (m *HttpServer) Startup() error {
 	for _, route := range m.engine.Routes() {
 		m.logger.Info("http route registered:", logs.String("method", route.Method), logs.String("path", route.Path))
 	}
+
+	m.server = &http.Server{
+		Addr:    m.addr,
+		Handler: m.engine,
+	}
+
 	go func() {
-		if err := m.Engine().Start(m.addr); err != nil && err != http.ErrServerClosed {
+		if err := m.server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			m.logger.Error("http server error:", zap.Error(err))
 		}
 	}()
 	go func() {
 		<-m.ctx.Done()
 		m.Stop()
-		m.engine.Close()
 	}()
 	return nil
 }
@@ -89,7 +107,7 @@ func (m *HttpServer) Startup() error {
 func (m *HttpServer) Stop() {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	if err := m.engine.Shutdown(ctx); err != nil {
+	if err := m.server.Shutdown(ctx); err != nil {
 		m.logger.Error("shutdown http server:", zap.Error(err))
 		return
 	}
@@ -98,18 +116,16 @@ func (m *HttpServer) Stop() {
 
 // Handle registers a new route with the HTTP server.
 func (m *HttpServer) Handle(method string, path string, handler IHandler) {
-
 	path, _ = url.JoinPath(m.path, "api", path)
-
-	m.engine.Add(method, path, handler.GetFunc())
+	m.engine.Handle(method, path, handler.GetFunc())
 }
 
 func (m *HttpServer) Internal(method string, path string, handler IHandler) {
 	path, _ = url.JoinPath(m.path, "internal", path)
-	m.engine.Add(method, path, handler.GetFunc())
+	m.engine.Handle(method, path, handler.GetFunc())
 }
 
-func (m *HttpServer) AddGroup(path string, middleware ...echo.MiddlewareFunc) {
+func (m *HttpServer) AddGroup(path string, middleware ...gin.HandlerFunc) {
 	url_path, _ := url.JoinPath(m.path, "api", path)
 	m.group[path] = NewStarDustGroup(path, m.engine.Group(url_path, middleware...))
 	m.logger.Info("http group registered:", logs.String("path", url_path))
@@ -141,16 +157,16 @@ func (m *HttpServer) Post(path string, group string, handler IHandler) {
 	m.Handle(http.MethodPost, path, handler)
 }
 
-func (m *HttpServer) AddNativeHandler(method string, path string, handler echo.HandlerFunc) {
+func (m *HttpServer) AddNativeHandler(method string, path string, handler gin.HandlerFunc) {
 	path, _ = url.JoinPath(m.path, "api", path)
-	m.engine.Add(method, path, handler)
+	m.engine.Handle(method, path, handler)
 	m.logger.Info("http native handler registered:", logs.String("method", method), logs.String("path", path))
 }
 
 // RegisterHealthCheck 注册健康检查接口
 func (m *HttpServer) RegisterHealthCheck() {
-	m.engine.GET("/health", func(c echo.Context) error {
-		return c.JSON(http.StatusOK, map[string]string{"status": "ok"})
+	m.engine.GET("/health", func(c *gin.Context) {
+		c.JSON(http.StatusOK, gin.H{"status": "ok"})
 	})
 	m.logger.Info("health check endpoint registered: /health")
 }

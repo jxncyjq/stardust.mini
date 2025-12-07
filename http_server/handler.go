@@ -1,7 +1,9 @@
 package httpServer
 
 import (
-	"github.com/labstack/echo/v4"
+	"net/http"
+
+	"github.com/gin-gonic/gin"
 )
 
 // 定义handler参数的结构
@@ -15,20 +17,20 @@ type Handler[Req any, Resp any] struct {
 	Path string // 路径
 	Name string
 	Tags []string
-	Func func(echo.Context, Req, Resp) error
+	Func func(*gin.Context, Req, Resp) error
 }
 
 // 抽象接口
 type IHandler interface {
 	GetName() string
 	GetTags() []string
-	GetFunc() func(echo.Context) error
+	GetFunc() gin.HandlerFunc
 }
 
 func NewHandler[Req any, Resp any](
 	name string,
 	tags []string,
-	f func(echo.Context, Req, Resp) error,
+	f func(*gin.Context, Req, Resp) error,
 ) *Handler[Req, Resp] {
 	return &Handler[Req, Resp]{
 		Name: name,
@@ -45,20 +47,20 @@ func (h *Handler[Req, Resp]) GetTags() []string {
 	return h.Tags
 }
 
-func (h *Handler[Req, Resp]) GetFunc() func(echo.Context) error {
-	return func(c echo.Context) error {
+func (h *Handler[Req, Resp]) GetFunc() gin.HandlerFunc {
+	return func(c *gin.Context) {
 		var req Req
 		var resp Resp
 		// 绑定
-		if err := c.Bind(&req); err != nil {
-			return err
-		}
-		// 验证
-		if err := c.Validate(&req); err != nil {
-			return err
+		if err := c.ShouldBind(&req); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
 		}
 		// 执行体
-		return h.Func(c, req, resp)
+		if err := h.Func(c, req, resp); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
 	}
 }
 
@@ -95,10 +97,10 @@ func (h *Handlers) GetHandlersLen() int {
 
 type StarDustGroup struct {
 	Prefix string
-	Group  *echo.Group
+	Group  *gin.RouterGroup
 }
 
-func NewStarDustGroup(prefix string, group *echo.Group) *StarDustGroup {
+func NewStarDustGroup(prefix string, group *gin.RouterGroup) *StarDustGroup {
 	return &StarDustGroup{
 		Prefix: prefix,
 		Group:  group,
