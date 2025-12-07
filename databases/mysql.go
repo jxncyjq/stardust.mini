@@ -9,6 +9,7 @@ import (
 	"gorm.io/driver/mysql"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
+	"gorm.io/plugin/dbresolver"
 )
 
 // DBInterface 数据库接口 - 直接使用gorm.DB
@@ -76,11 +77,43 @@ func NewMSConn(c *Config) (DBInterface, error) {
 		return nil, errors.New("config or config.Url can not be null")
 	}
 
-	// GORM 本身不直接支持主从配置，这里只创建主库连接
-	// 如果需要主从支持，可以考虑使用GORM的插件或自定义实现
-	log.Println("Warning: Master-Slave configuration not fully supported in GORM, using master connection only")
+	// 先创建主库连接
+	conn, err := NewSingleConn(c)
+	if err != nil {
+		return nil, err
+	}
 
-	return NewSingleConn(c)
+	// 如果没有从库配置，直接返回主库连接
+	if len(c.Slaves) == 0 {
+		log.Println("No slave databases configured, using master only")
+		return conn, nil
+	}
+
+	// 配置从库
+	var replicas []gorm.Dialector
+	for _, slave := range c.Slaves {
+		var dialector gorm.Dialector
+		switch c.DbType {
+		case "postgres":
+			dialector = postgres.Open(slave)
+		default:
+			dialector = mysql.Open(slave)
+		}
+		replicas = append(replicas, dialector)
+	}
+
+	// 使用 DBResolver 插件配置读写分离
+	err = conn.Use(dbresolver.Register(dbresolver.Config{
+		Replicas: replicas,
+		Policy:   dbresolver.RandomPolicy{}, // 随机选择从库
+	}).SetMaxIdleConns(c.MaxIdle).SetMaxOpenConns(c.MaxConn))
+
+	if err != nil {
+		return nil, err
+	}
+
+	log.Printf("Master-Slave configuration enabled: 1 master, %d slaves", len(c.Slaves))
+	return conn, nil
 }
 
 //func GetMySqlDB() DBInterface {

@@ -6,6 +6,7 @@ import (
 	"reflect"
 
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 type Dao interface {
@@ -141,18 +142,11 @@ func (m *OrmBaseDao) InsertMany(entries ...interface{}) (int64, error) {
 	}
 
 	db := m.DB()
-	var totalAffected int64 = 0
-
-	// 检查entries的类型是否一致
-	for _, entry := range entries {
-		result := db.Create(entry)
-		if result.Error != nil {
-			return totalAffected, result.Error
-		}
-		totalAffected += result.RowsAffected
+	result := db.Create(entries)
+	if result.Error != nil {
+		return 0, result.Error
 	}
-
-	return totalAffected, nil
+	return result.RowsAffected, nil
 }
 
 func (m *OrmBaseDao) Update(bean interface{}, where ...interface{}) (int64, error) {
@@ -186,36 +180,33 @@ func (m *OrmBaseDao) UpdateById(id interface{}, bean interface{}) (int64, error)
 
 // Upsert 如果数据存在则更新，不存在则插入
 func (m *OrmBaseDao) Upsert(where interface{}, bean interface{}) (int64, error) {
-	// 检查数据是否存在
-	exists, err := m.Exists(where)
-	if err != nil {
-		return 0, err
-	}
+	db := m.DB()
 
-	if exists {
-		// 数据存在，执行更新
-		return m.Update(bean, where)
-	} else {
-		// 数据不存在，执行插入
-		return m.InsertOne(bean)
+	// 使用 GORM 的 Clauses 实现原子性 Upsert
+	result := db.Clauses(clause.OnConflict{
+		UpdateAll: true,
+	}).Create(bean)
+
+	if result.Error != nil {
+		return 0, result.Error
 	}
+	return result.RowsAffected, nil
 }
 
 // UpsertById 根据ID进行Upsert操作
 func (m *OrmBaseDao) UpsertById(id interface{}, bean interface{}) (int64, error) {
-	// 检查指定ID的数据是否存在
-	found, err := m.FindById(id, bean)
-	if err != nil {
-		return 0, err
-	}
+	db := m.DB()
 
-	if found {
-		// 数据存在，执行更新
-		return m.UpdateById(id, bean)
-	} else {
-		// 数据不存在，执行插入
-		return m.InsertOne(bean)
+	// 使用 GORM 的 Clauses 实现原子性 Upsert，指定冲突列为 id
+	result := db.Clauses(clause.OnConflict{
+		Columns:   []clause.Column{{Name: "id"}},
+		UpdateAll: true,
+	}).Create(bean)
+
+	if result.Error != nil {
+		return 0, result.Error
 	}
+	return result.RowsAffected, nil
 }
 
 // UpsertMany 批量Upsert操作
@@ -401,22 +392,26 @@ func (m *OrmBaseDao) GetTableMetas(tableName string) ([]map[string]interface{}, 
 	db := (*gorm.DB)(m.conn)
 
 	var columns []map[string]interface{}
-	var query string
 
 	// 根据数据库类型选择不同的查询
 	switch db.Dialector.Name() {
 	case "mysql":
-		query = "DESCRIBE " + tableName
+		// MySQL 使用 information_schema 避免 SQL 注入
+		query := `SELECT COLUMN_NAME, COLUMN_TYPE, IS_NULLABLE, COLUMN_KEY, COLUMN_DEFAULT, EXTRA
+				FROM information_schema.COLUMNS
+				WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ?`
+		if err := db.Raw(query, tableName).Scan(&columns).Error; err != nil {
+			return nil, err
+		}
 	case "postgres":
-		query = `SELECT column_name, data_type, is_nullable 
-				FROM information_schema.columns 
+		query := `SELECT column_name, data_type, is_nullable
+				FROM information_schema.columns
 				WHERE table_name = ? AND table_schema = 'public'`
+		if err := db.Raw(query, tableName).Scan(&columns).Error; err != nil {
+			return nil, err
+		}
 	default:
 		return nil, errors.New("unsupported database type")
-	}
-
-	if err := db.Raw(query, tableName).Scan(&columns).Error; err != nil {
-		return nil, err
 	}
 
 	return columns, nil

@@ -32,6 +32,10 @@ func GetDatabaseManager() *DatabaseManager {
 			db: make(map[string]DBInterface),
 		}
 		for _, cfg := range managerConfig {
+			cfg.SetDefaults()
+			if err := cfg.Validate(); err != nil {
+				panic("Invalid database config: " + err.Error())
+			}
 			db := NewDBInterface(cfg)
 			manager.db[cfg.Name] = db
 		}

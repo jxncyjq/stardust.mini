@@ -14,6 +14,39 @@ type Config struct {
 	DbType         string   `json:"db_type" hcl:"db_type"`
 }
 
+// Validate 验证配置
+func (c *Config) Validate() error {
+	if c.Name == "" {
+		return errors.New("database name is required")
+	}
+	if c.Master == "" {
+		return errors.New("master connection string is required")
+	}
+	if c.MaxIdle < 0 {
+		return errors.New("max_idle must be >= 0")
+	}
+	if c.MaxConn <= 0 {
+		return errors.New("max_conn must be > 0")
+	}
+	if c.MaxIdle > c.MaxConn {
+		return errors.New("max_idle cannot be greater than max_conn")
+	}
+	return nil
+}
+
+// SetDefaults 设置默认值
+func (c *Config) SetDefaults() {
+	if c.MaxIdle == 0 {
+		c.MaxIdle = 10
+	}
+	if c.MaxConn == 0 {
+		c.MaxConn = 100
+	}
+	if c.DbType == "" {
+		c.DbType = "mysql"
+	}
+}
+
 var ErrGetEmpty = errors.New("found 0 rows")
 var ErrUpdatedEmpty = errors.New("update affected 0 rows")
 var ErrDeletedEmpty = errors.New("delete affected 0 rows")

@@ -16,8 +16,6 @@ type Handler[Req any, Resp any] struct {
 	Name string
 	Tags []string
 	Func func(echo.Context, Req, Resp) error
-	req  Req
-	resp Resp
 }
 
 // 抽象接口
@@ -32,14 +30,10 @@ func NewHandler[Req any, Resp any](
 	tags []string,
 	f func(echo.Context, Req, Resp) error,
 ) *Handler[Req, Resp] {
-	var req Req
-	var resp Resp
 	return &Handler[Req, Resp]{
 		Name: name,
 		Tags: tags,
 		Func: f,
-		req:  req,
-		resp: resp,
 	}
 }
 
@@ -53,16 +47,18 @@ func (h *Handler[Req, Resp]) GetTags() []string {
 
 func (h *Handler[Req, Resp]) GetFunc() func(echo.Context) error {
 	return func(c echo.Context) error {
+		var req Req
+		var resp Resp
 		// 绑定
-		if err := c.Bind(&h.req); err != nil {
+		if err := c.Bind(&req); err != nil {
 			return err
 		}
 		// 验证
-		if err := c.Validate(&h.req); err != nil {
+		if err := c.Validate(&req); err != nil {
 			return err
 		}
 		// 执行体
-		return h.Func(c, h.req, h.resp)
+		return h.Func(c, req, resp)
 	}
 }
 
