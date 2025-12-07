@@ -2,6 +2,7 @@ package nats
 
 import (
 	"context"
+	"errors"
 	"time"
 
 	"github.com/jxncyjq/stardust.mini/logs"
@@ -23,8 +24,8 @@ type NatsConnection struct {
 	logger     *zap.Logger
 	url        string
 	stopChan   chan struct{}
-	ctx        context.Context
-	cannel     context.CancelFunc
+	ctx    context.Context
+	cancel context.CancelFunc
 	// 在结构体中添加消息通道
 	messageChan chan *nats.Msg
 	// handler 映射表
@@ -43,9 +44,19 @@ type NatsConfig struct {
 	Password   string   `json:"password"` // 新增密码
 }
 
+func (c *NatsConfig) Validate() error {
+	if c.Url == "" {
+		return errors.New("nats url is required")
+	}
+	if c.UseStream && c.StreamName == "" {
+		return errors.New("stream name is required when use_stream is enabled")
+	}
+	return nil
+}
+
 func NewNatsConnect(name string, natsConfig *NatsConfig) (*NatsConnection, error) {
 	if natsConfig == nil {
-		panic("NATS 配置未初始化")
+		return nil, errors.New("NATS 配置未初始化")
 	}
 	var opts []nats.Option
 	opts = append(opts,
@@ -57,29 +68,28 @@ func NewNatsConnect(name string, natsConfig *NatsConfig) (*NatsConnection, error
 	}
 	conn, err := nats.Connect(natsConfig.Url, opts...)
 	if err != nil {
-		panic(err)
+		return nil, err
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
 
 	sub := &NatsConnection{
-		name:      name,
-		conn:      conn,
-		config:    natsConfig,
-		useStream: natsConfig.UseStream,
-		logger:    logs.GetLogger("nats"),
-		url:       natsConfig.Url,
-		stopChan:  make(chan struct{}),
-		ctx:       ctx,
-		cannel:    cancel,
-		// 初始化消息通道
+		name:        name,
+		conn:        conn,
+		config:      natsConfig,
+		useStream:   natsConfig.UseStream,
+		logger:      logs.GetLogger("nats"),
+		url:         natsConfig.Url,
+		stopChan:    make(chan struct{}),
+		ctx:         ctx,
+		cancel:      cancel,
 		messageChan: make(chan *nats.Msg, 64),
 		handlers:    make(map[string]func(*nats.Msg)),
 	}
 	if natsConfig.UseStream {
 		js, err := conn.JetStream(nats.PublishAsyncMaxPending(100))
 		if err != nil {
-			panic(err)
+			conn.Close()
 			return nil, err
 		}
 		sub.js = js

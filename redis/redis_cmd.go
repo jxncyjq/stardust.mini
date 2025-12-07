@@ -35,6 +35,15 @@ func NewRedisCmd(c *Config) (RedisCmd, error) {
 	if len(c.Addrs) == 0 {
 		return nil, ErrRedisAddrsEmpty
 	}
+	// 设置默认连接池配置
+	poolSize := c.PoolSize
+	if poolSize <= 0 {
+		poolSize = 10
+	}
+	poolTimeout := c.PoolTimeout
+	if poolTimeout <= 0 {
+		poolTimeout = 4 * time.Second
+	}
 	if c.UseCluster {
 		redisCon = redis.NewClusterClient(&redis.ClusterOptions{
 			Addrs:        c.Addrs,
@@ -43,10 +52,11 @@ func NewRedisCmd(c *Config) (RedisCmd, error) {
 			DialTimeout:  c.DialTimeout,
 			ReadTimeout:  c.ReadTimeout,
 			WriteTimeout: c.WriteTimeout,
-			PoolSize:     c.PoolSize,
-			PoolTimeout:  c.PoolTimeout,
+			PoolSize:     poolSize,
+			PoolTimeout:  poolTimeout,
 			TLSConfig:    c.TLSConfig,
 		})
+		return redisCon, nil
 	}
 	redisCon = redis.NewClient(&redis.Options{
 		Addr:         c.Addrs[0],
@@ -55,10 +65,9 @@ func NewRedisCmd(c *Config) (RedisCmd, error) {
 		DialTimeout:  c.DialTimeout,
 		ReadTimeout:  c.ReadTimeout,
 		WriteTimeout: c.WriteTimeout,
-		PoolSize:     c.PoolSize,
-		PoolTimeout:  c.PoolTimeout,
-		//ReadOnly:           c.ReadOnly,
-		TLSConfig: c.TLSConfig,
+		PoolSize:     poolSize,
+		PoolTimeout:  poolTimeout,
+		TLSConfig:    c.TLSConfig,
 	})
 	return redisCon, nil
 }

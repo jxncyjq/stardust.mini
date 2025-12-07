@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"time"
 
 	"github.com/go-playground/validator/v10"
 	"github.com/jxncyjq/stardust.mini/logs"
@@ -86,10 +87,13 @@ func (m *HttpServer) Startup() error {
 }
 
 func (m *HttpServer) Stop() {
-	if err := m.engine.Shutdown(m.ctx); err != nil {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	if err := m.engine.Shutdown(ctx); err != nil {
 		m.logger.Error("shutdown http server:", zap.Error(err))
 		return
 	}
+	m.logger.Info("http server shutdown gracefully")
 }
 
 // Handle registers a new route with the HTTP server.
@@ -141,4 +145,12 @@ func (m *HttpServer) AddNativeHandler(method string, path string, handler echo.H
 	path, _ = url.JoinPath(m.path, "api", path)
 	m.engine.Add(method, path, handler)
 	m.logger.Info("http native handler registered:", logs.String("method", method), logs.String("path", path))
+}
+
+// RegisterHealthCheck 注册健康检查接口
+func (m *HttpServer) RegisterHealthCheck() {
+	m.engine.GET("/health", func(c echo.Context) error {
+		return c.JSON(http.StatusOK, map[string]string{"status": "ok"})
+	})
+	m.logger.Info("health check endpoint registered: /health")
 }

@@ -1,5 +1,7 @@
 package httpServer
 
+import "errors"
+
 type HttpServerConfig struct {
 	Port       int    `json:"port" yaml:"port"`               // HTTP服务器端口
 	Address    string `json:"address" yaml:"address"`         // HTTP服务器主机名
@@ -7,6 +9,16 @@ type HttpServerConfig struct {
 	Cors       bool   `json:"cors" yaml:"cors"`               // 是否启用CORS
 	RequestLog bool   `json:"request_log" yaml:"request_log"` // 是否启用请求日志
 	Access     bool   `json:"access" yaml:"access"`           // 是否启用访问日志
+}
+
+func (c *HttpServerConfig) Validate() error {
+	if c.Port <= 0 || c.Port > 65535 {
+		return errors.New("invalid port: must be between 1 and 65535")
+	}
+	if c.Path != "" && c.Path[0] != '/' {
+		return errors.New("path must start with /")
+	}
+	return nil
 }
 
 type HttpWebSocketConfig struct {

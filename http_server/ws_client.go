@@ -119,7 +119,7 @@ func (c *Client) ReceivedMessage() <-chan []byte {
 			c.logger.Info("Connection closed", logs.String("sessionId", c.sessionId))
 		}()
 
-		c.conn.SetReadLimit(512)
+		c.conn.SetReadLimit(32768) // 32KB
 		c.conn.SetReadDeadline(time.Now().Add(60 * time.Second))
 		c.conn.SetPongHandler(func(string) error {
 			c.conn.SetReadDeadline(time.Now().Add(60 * time.Second))
@@ -129,7 +129,7 @@ func (c *Client) ReceivedMessage() <-chan []byte {
 		for {
 			_, msg, err := c.conn.ReadMessage()
 			if err != nil {
-				c.logger.Info("read error:", logs.String("sessionId", c.sessionId), logs.ErrorInfo(err))
+				c.logger.Debug("read error:", logs.String("sessionId", c.sessionId), logs.ErrorInfo(err))
 				break
 			}
 			if string(msg) == "" {
@@ -137,7 +137,7 @@ func (c *Client) ReceivedMessage() <-chan []byte {
 			}
 			message, err := c.codec.Decode(msg)
 			if err != nil {
-				c.logger.Info("decode error:", logs.ErrorInfo(err))
+				c.logger.Warn("decode error:", logs.ErrorInfo(err))
 				continue
 			}
 

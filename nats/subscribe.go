@@ -233,7 +233,7 @@ func (s *NatsConnection) Start() {
 }
 
 func (s *NatsConnection) Stop() {
-	s.cannel()
+	s.cancel()
 	if s.conn != nil {
 		s.conn.Close()
 		s.logger.Info("NATS connection closed", logs.String("name", s.name), logs.String("url", s.url))
