@@ -18,8 +18,7 @@ type bodyDumpResponseWriter struct {
 
 var logger *zap.Logger
 
-func init() {
-	// echo中间件
+func initLogger() {
 	if logger == nil {
 		logger = logs.GetLogger("access middleware")
 	}
@@ -30,6 +29,7 @@ func (w *bodyDumpResponseWriter) Write(b []byte) (int, error) {
 
 // Request Response 记录请求日志
 func Request() echo.MiddlewareFunc {
+	initLogger()
 	return func(next echo.HandlerFunc) echo.HandlerFunc {
 		return func(c echo.Context) error {
 			// 取得request body
