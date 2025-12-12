@@ -2,14 +2,23 @@ package httpServer
 
 import "errors"
 
+// ServerMode 服务器模式
+type ServerMode string
+
+const (
+	ModeGin  ServerMode = "gin"
+	ModeGrpc ServerMode = "grpc"
+)
+
 type HttpServerConfig struct {
-	Port       int    `json:"port" yaml:"port"`               // HTTP服务器端口
-	Address    string `json:"address" yaml:"address"`         // HTTP服务器主机名
-	Path       string `json:"path" yaml:"path"`               // HTTP服务器路径
-	Cors       bool   `json:"cors" yaml:"cors"`               // 是否启用CORS
-	RequestLog bool   `json:"request_log" yaml:"request_log"` // 是否启用请求日志
-	Access     bool   `json:"access" yaml:"access"`           // 是否启用访问日志
-	WorkerID   int64  `json:"worker_id" yaml:"worker_id"`     // Snowflake workerID (0-1023)，用于生成唯一sessionId
+	Port       int        `json:"port" yaml:"port"`               // HTTP服务器端口
+	Address    string     `json:"address" yaml:"address"`         // HTTP服务器主机名
+	Path       string     `json:"path" yaml:"path"`               // HTTP服务器路径
+	Cors       bool       `json:"cors" yaml:"cors"`               // 是否启用CORS
+	RequestLog bool       `json:"request_log" yaml:"request_log"` // 是否启用请求日志
+	Access     bool       `json:"access" yaml:"access"`           // 是否启用访问日志
+	WorkerID   int64      `json:"worker_id" yaml:"worker_id"`     // Snowflake workerID (0-1023)，用于生成唯一sessionId
+	Mode       ServerMode `json:"mode" yaml:"mode"`               // 服务器模式: gin 或 grpc
 }
 
 func (c *HttpServerConfig) Validate() error {
