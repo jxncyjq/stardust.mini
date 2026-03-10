@@ -16,6 +16,8 @@ type Backend struct {
 	httpServer *HttpServer
 }
 
+type HandlerFunc = gin.HandlerFunc
+
 func NewBackend(config []byte) (*Backend, error) {
 	httpServer, err := NewHttpServer(config)
 	if err != nil {
@@ -33,15 +35,15 @@ func NewBackend(config []byte) (*Backend, error) {
 	}, nil
 }
 
-func (m *Backend) AddGroup(group string, middleware ...gin.HandlerFunc) {
+func (m *Backend) AddGroup(group string, middleware ...HandlerFunc) {
 	m.httpServer.AddGroup(group, middleware...)
 }
 
-func (m *Backend) AddPostHandler(group string, h IHandler) {
+func (m *Backend) Post(group string, h IHandler) {
 	m.httpServer.Post(h.GetName(), group, h)
 }
 
-func (m *Backend) AddGetHandler(group string, h IHandler) {
+func (m *Backend) Get(group string, h IHandler) {
 	m.httpServer.Get(h.GetName(), group, h)
 }
 
@@ -49,7 +51,7 @@ func (m *Backend) AddHandler(method, path string, h IHandler) {
 	m.httpServer.Handle(method, path, h)
 }
 
-func (m *Backend) AddNativeHandler(method string, path string, handler gin.HandlerFunc) {
+func (m *Backend) AddNativeHandler(method string, path string, handler HandlerFunc) {
 	m.httpServer.AddNativeHandler(method, path, handler)
 }
 
@@ -58,5 +60,7 @@ func (m *Backend) Start() error {
 }
 
 func (m *Backend) Stop() {
-	m.httpServer.Stop()
+	if err := m.httpServer.WaitForShutdown(); err != nil {
+		m.Logger.Error("http server shutdown error", zap.Error(err))
+	}
 }

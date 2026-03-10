@@ -6,6 +6,9 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"os"
+	"os/signal"
+	"syscall"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -169,4 +172,32 @@ func (m *HttpServer) RegisterHealthCheck() {
 		c.JSON(http.StatusOK, gin.H{"status": "ok"})
 	})
 	m.logger.Info("health check endpoint registered: /health")
+}
+
+// WaitForShutdown 等待关闭信号并执行优雅关闭
+func (m *HttpServer) WaitForShutdown() error {
+	// 创建信号通道
+	quit := make(chan os.Signal, 1)
+
+	// 监听指定的信号量：SIGINT (Ctrl+C), SIGTERM
+	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
+
+	// 等待信号
+	sig := <-quit
+	m.logger.Info("received shutdown signal:", zap.String("signal", sig.String()))
+
+	// 创建带超时的上下文用于优雅关闭
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	m.logger.Info("shutting down server...")
+
+	// 执行优雅关闭
+	if err := m.server.Shutdown(ctx); err != nil {
+		m.logger.Error("server forced to shutdown:", zap.Error(err))
+		return err
+	}
+
+	m.logger.Info("server exited gracefully")
+	return nil
 }

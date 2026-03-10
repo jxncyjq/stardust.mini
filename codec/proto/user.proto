@@ -2,7 +2,6 @@ syntax = "proto3";
 
 package codec;
 
-option go_package = "github.com/jxncyjq/stardust.mini/codec/proto";
 
 message User {
     string user_name = 1;

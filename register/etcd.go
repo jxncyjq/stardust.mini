@@ -4,9 +4,15 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"sync"
 	"time"
 
 	clientv3 "go.etcd.io/etcd/client/v3"
+)
+
+var (
+	etcdInstance *EtcdRegister
+	etcdOnce     sync.Once
 )
 
 // EtcdConfig etcd配置
@@ -14,14 +20,64 @@ type EtcdConfig struct {
 	Endpoints   []string `json:"endpoints" yaml:"endpoints"`
 	DialTimeout int      `json:"dial_timeout" yaml:"dial_timeout"` // 秒
 	TTL         int64    `json:"ttl" yaml:"ttl"`                   // 租约TTL秒
+	ServiceName string   `json:"service_name" yaml:"service_name"` // 服务名
+	Address     string   `json:"address" yaml:"address"`           // 服务地址
+	Port        int      `json:"port" yaml:"port"`                 // 服务端口
+	Tags        []string `json:"tags" yaml:"tags"`                 // 服务标签
 }
 
 // EtcdRegister etcd服务注册实现
 type EtcdRegister struct {
-	client  *clientv3.Client
-	leaseID clientv3.LeaseID
-	ttl     int64
-	prefix  string
+	client   *clientv3.Client
+	leaseID  clientv3.LeaseID
+	ttl      int64
+	prefix   string
+	registry *ServiceRegistry
+}
+
+// Init 初始化etcd单例并注册服务
+func Init(configBytes []byte) {
+	etcdOnce.Do(func() {
+		var config EtcdConfig
+		if err := json.Unmarshal(configBytes, &config); err != nil {
+			panic("failed to parse etcd config: " + err.Error())
+		}
+
+		timeout := 5
+		if config.DialTimeout > 0 {
+			timeout = config.DialTimeout
+		}
+
+		client, err := clientv3.New(clientv3.Config{
+			Endpoints:   config.Endpoints,
+			DialTimeout: time.Duration(timeout) * time.Second,
+		})
+		if err != nil {
+			panic("failed to connect etcd: " + err.Error())
+		}
+
+		ttl := int64(10)
+		if config.TTL > 0 {
+			ttl = config.TTL
+		}
+
+		etcdInstance = &EtcdRegister{
+			client: client,
+			ttl:    ttl,
+			prefix: "/services/",
+		}
+
+		// 注册服务
+		etcdInstance.registry = NewServiceRegistry(etcdInstance)
+		if err := etcdInstance.registry.Register(config.ServiceName, config.Address, config.Port, config.Tags, nil); err != nil {
+			panic("failed to register service: " + err.Error())
+		}
+	})
+}
+
+// GetEtcdRegister 获取etcd单例
+func GetEtcdRegister() *EtcdRegister {
+	return etcdInstance
 }
 
 // NewEtcdRegister 创建etcd注册器
@@ -149,5 +205,8 @@ func (r *EtcdRegister) Watch(ctx context.Context, serviceName string) (<-chan []
 
 // Close 关闭连接
 func (r *EtcdRegister) Close() error {
+	if r.registry != nil {
+		r.registry.Deregister()
+	}
 	return r.client.Close()
 }

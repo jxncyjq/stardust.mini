@@ -1,6 +1,6 @@
 module github.com/jxncyjq/stardust.mini
 
-go 1.23.0
+go 1.26
 
 require (
 	github.com/BurntSushi/toml v1.5.0
@@ -27,11 +27,6 @@ require (
 	gorm.io/driver/mysql v1.6.0
 	gorm.io/driver/postgres v1.6.0
 	gorm.io/gorm v1.30.3
-)
-
-require github.com/google/flatbuffers v25.9.23+incompatible
-
-require (
 	github.com/bytedance/sonic v1.11.6 // indirect
 	github.com/bytedance/sonic/loader v0.1.1 // indirect
 	github.com/cenkalti/backoff/v4 v4.3.0 // indirect
@@ -60,9 +55,6 @@ require (
 	golang.org/x/arch v0.8.0 // indirect
 	google.golang.org/genproto/googleapis/api v0.0.0-20241104194629-dd2ea8efbc28 // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20241104194629-dd2ea8efbc28 // indirect
-)
-
-require (
 	filippo.io/edwards25519 v1.1.0 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/davecgh/go-spew v1.1.1 // indirect
@@ -93,3 +85,5 @@ require (
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 	gorm.io/plugin/dbresolver v1.6.2
 )
+
+require github.com/google/flatbuffers v25.9.23+incompatible
