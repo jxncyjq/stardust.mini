@@ -1,4 +1,4 @@
-package zrpc
+package httpServer
 
 import (
 	"fmt"
@@ -9,14 +9,14 @@ import (
 	"google.golang.org/grpc/resolver"
 )
 
-// RpcClient gRPC 客户端封装（参照 go-zero zrpc.Client）
-type RpcClient struct {
+// GrpcClient gRPC 客户端封装，支持直连和 etcd 服务发现
+type GrpcClient struct {
 	conn   *grpc.ClientConn
 	logger *zap.Logger
 }
 
-// NewRpcClient 创建 gRPC 客户端
-func NewRpcClient(conf RpcClientConf, opts ...grpc.DialOption) (*RpcClient, error) {
+// NewGrpcClient 创建 gRPC 客户端
+func NewGrpcClient(conf GrpcClientConfig, opts ...grpc.DialOption) (*GrpcClient, error) {
 	defaultOpts := []grpc.DialOption{
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
 		grpc.WithDefaultServiceConfig(`{"loadBalancingPolicy": "round_robin"}`),
@@ -39,19 +39,19 @@ func NewRpcClient(conf RpcClientConf, opts ...grpc.DialOption) (*RpcClient, erro
 		return nil, err
 	}
 
-	return &RpcClient{
+	return &GrpcClient{
 		conn:   conn,
-		logger: getLoggerSafe("rpc_client"),
+		logger: getLoggerSafe("grpc_client"),
 	}, nil
 }
 
 // Conn 获取底层连接
-func (c *RpcClient) Conn() *grpc.ClientConn {
+func (c *GrpcClient) Conn() *grpc.ClientConn {
 	return c.conn
 }
 
 // Close 关闭连接
-func (c *RpcClient) Close() error {
+func (c *GrpcClient) Close() error {
 	if c.conn != nil {
 		return c.conn.Close()
 	}

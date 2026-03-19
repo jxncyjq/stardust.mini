@@ -4,7 +4,6 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
-	"os"
 	"strings"
 	"testing"
 	"time"
@@ -15,19 +14,6 @@ import (
 	"github.com/jxncyjq/stardust.mini/logs"
 	"github.com/jxncyjq/stardust.mini/uuid"
 )
-
-func TestMain(m *testing.M) {
-	logs.Init([]byte(`{"level":-1}`))
-	gin.SetMode(gin.TestMode)
-	os.Exit(m.Run())
-}
-
-// TestMessageHandler 测试消息处理器
-type TestMessageHandler struct{}
-
-func (h *TestMessageHandler) HandlerMessage(message codec.IMessage) (string, error) {
-	return `{"type":"echo","data":"` + message.GetType() + `"}`, nil
-}
 
 // TestWebSocketServer 测试 WebSocket 服务器端功能
 // 验证: HttpServer + ClientManager + Client 的服务端集成

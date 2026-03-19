@@ -5,9 +5,9 @@ package main
 import (
 	"time"
 
+	httpServer "github.com/jxncyjq/stardust.mini/http_server"
 	"github.com/jxncyjq/stardust.mini/http_server/middleware"
 	"github.com/jxncyjq/stardust.mini/service"
-	"github.com/jxncyjq/stardust.mini/zrpc"
 )
 
 // 示例：完整微服务启动流程
@@ -25,7 +25,7 @@ func main() {
 	}
 
 	// 2. 创建 RPC 服务（自动注入拦截器链：metric -> tracing -> breaker -> timeout）
-	rpcServer, err := zrpc.NewRpcServer(zrpc.RpcServerConf{
+	rpcServer, err := httpServer.NewGrpcServer(httpServer.GrpcServerConfig{
 		ListenOn: "0.0.0.0:9090",
 		Timeout:  5000,
 	})
@@ -36,7 +36,6 @@ func main() {
 	// pb.RegisterUserServiceServer(rpcServer.Server(), &UserServiceImpl{})
 
 	// 3. 中间件展示（实际使用时通过 httpServer.Use() 注入）
-	// 以下变量展示可用的中间件，实际场景中配合 Backend 或 HttpServer 使用
 	_ = middleware.Metrics("user-service")
 	_ = middleware.Tracing("user-service")
 	_ = middleware.CircuitBreaker()
@@ -47,7 +46,7 @@ func main() {
 
 	// 4. 使用 ServiceGroup 统一管理生命周期
 	sg := service.NewServiceGroup()
-	sg.Add(rpcServer) // RpcServer 直接实现 Service 接口
+	sg.Add(rpcServer) // GrpcServer 直接实现 Service 接口
 	// sg.Add(service.NewServerStarter(backend)) // HTTP 服务通过 ServerStarter 适配
 	sg.Start() // 阻塞直到收到退出信号
 }

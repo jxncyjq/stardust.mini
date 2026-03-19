@@ -1,4 +1,4 @@
-package zrpc
+package httpServer
 
 import (
 	"context"
@@ -14,6 +14,7 @@ type etcdResolverBuilder struct {
 	config *register.EtcdConfig
 }
 
+// NewEtcdResolverBuilder 创建 etcd 服务发现的 resolver
 func NewEtcdResolverBuilder(config *register.EtcdConfig) resolver.Builder {
 	return &etcdResolverBuilder{config: config}
 }

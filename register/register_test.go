@@ -2,7 +2,12 @@ package register
 
 import (
 	"context"
+	"encoding/json"
+	"io"
+	"net/http"
+	"net/http/httptest"
 	"os"
+	"strings"
 	"sync"
 	"testing"
 
@@ -210,5 +215,195 @@ func TestWatch(t *testing.T) {
 	services := <-ch
 	if len(services) != 1 {
 		t.Errorf("Expected 1 service in watch, got %d", len(services))
+	}
+}
+
+// --- Gateway + APISIX tests ---
+
+type MockGateway struct {
+	mu       sync.Mutex
+	services map[string]*GatewayService
+}
+
+func NewMockGateway() *MockGateway {
+	return &MockGateway{services: make(map[string]*GatewayService)}
+}
+
+func (g *MockGateway) RegisterService(ctx context.Context, svc *GatewayService) error {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.services[svc.ID] = svc
+	return nil
+}
+
+func (g *MockGateway) DeregisterService(ctx context.Context, serviceID string) error {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	delete(g.services, serviceID)
+	return nil
+}
+
+func (g *MockGateway) Close() error { return nil }
+
+func TestGatewayInterface(t *testing.T) {
+	gw := NewMockGateway()
+	ctx := context.Background()
+
+	svc := &GatewayService{
+		ID:   "example-service",
+		Name: "example-service",
+		Upstream: &GatewayUpstream{
+			Type:  "roundrobin",
+			Nodes: map[string]int{"127.0.0.1:8080": 1},
+		},
+		Routes: []*GatewayRoute{
+			{Name: "hello", URI: "/api/*", Methods: []string{"GET", "POST"}},
+		},
+	}
+
+	if err := gw.RegisterService(ctx, svc); err != nil {
+		t.Fatalf("RegisterService failed: %v", err)
+	}
+	if len(gw.services) != 1 {
+		t.Errorf("expected 1 service, got %d", len(gw.services))
+	}
+
+	if err := gw.DeregisterService(ctx, "example-service"); err != nil {
+		t.Fatalf("DeregisterService failed: %v", err)
+	}
+	if len(gw.services) != 0 {
+		t.Errorf("expected 0 services, got %d", len(gw.services))
+	}
+}
+
+func TestApisixGateway_RegisterAndDeregister(t *testing.T) {
+	var mu sync.Mutex
+	upstreams := make(map[string]json.RawMessage)
+	routes := make(map[string]json.RawMessage)
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("X-API-KEY") != "test-key" {
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
+		}
+
+		mu.Lock()
+		defer mu.Unlock()
+
+		parts := strings.Split(strings.TrimPrefix(r.URL.Path, "/apisix/admin/"), "/")
+		if len(parts) != 2 {
+			http.Error(w, "bad path", http.StatusBadRequest)
+			return
+		}
+		resource, id := parts[0], parts[1]
+
+		switch r.Method {
+		case http.MethodPut:
+			body, _ := io.ReadAll(r.Body)
+			switch resource {
+			case "upstreams":
+				upstreams[id] = body
+			case "routes":
+				routes[id] = body
+			}
+			w.WriteHeader(http.StatusCreated)
+			w.Write([]byte(`{"key":"` + id + `"}`))
+
+		case http.MethodDelete:
+			switch resource {
+			case "upstreams":
+				delete(upstreams, id)
+			case "routes":
+				delete(routes, id)
+			}
+			w.WriteHeader(http.StatusOK)
+
+		default:
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		}
+	}))
+	defer server.Close()
+
+	gw, err := NewApisixGateway(&ApisixConfig{
+		AdminURL: server.URL,
+		APIKey:   "test-key",
+		Timeout:  5,
+	})
+	if err != nil {
+		t.Fatalf("NewApisixGateway failed: %v", err)
+	}
+	defer gw.Close()
+
+	ctx := context.Background()
+
+	svc := &GatewayService{
+		ID:   "example-svc",
+		Name: "example-service",
+		Upstream: &GatewayUpstream{
+			Type:  "roundrobin",
+			Nodes: map[string]int{"127.0.0.1:8080": 1},
+		},
+		Routes: []*GatewayRoute{
+			{Name: "hello-api", URI: "/api/*", Methods: []string{"GET", "POST"}},
+			{Name: "health", URI: "/health", Methods: []string{"GET"}},
+		},
+	}
+
+	if err := gw.RegisterService(ctx, svc); err != nil {
+		t.Fatalf("RegisterService failed: %v", err)
+	}
+
+	if len(upstreams) != 1 {
+		t.Errorf("expected 1 upstream, got %d", len(upstreams))
+	}
+	if _, ok := upstreams["example-svc"]; !ok {
+		t.Error("upstream 'example-svc' not found")
+	}
+
+	if len(routes) != 2 {
+		t.Errorf("expected 2 routes, got %d", len(routes))
+	}
+
+	var routeBody map[string]interface{}
+	json.Unmarshal(routes["example-svc-route-0"], &routeBody)
+	if routeBody["uri"] != "/api/*" {
+		t.Errorf("expected route uri '/api/*', got %v", routeBody["uri"])
+	}
+	if routeBody["upstream_id"] != "example-svc" {
+		t.Errorf("expected upstream_id 'example-svc', got %v", routeBody["upstream_id"])
+	}
+
+	if err := gw.DeregisterService(ctx, "example-svc"); err != nil {
+		t.Fatalf("DeregisterService failed: %v", err)
+	}
+
+	if len(upstreams) != 0 {
+		t.Errorf("expected 0 upstreams after deregister, got %d", len(upstreams))
+	}
+	if len(routes) != 0 {
+		t.Errorf("expected 0 routes after deregister, got %d", len(routes))
+	}
+}
+
+func TestApisixGateway_InvalidConfig(t *testing.T) {
+	_, err := NewApisixGateway(&ApisixConfig{})
+	if err == nil {
+		t.Error("expected error for empty AdminURL")
+	}
+}
+
+func TestApisixGateway_AuthFailure(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+	}))
+	defer server.Close()
+
+	gw, _ := NewApisixGateway(&ApisixConfig{AdminURL: server.URL, APIKey: "wrong-key"})
+	err := gw.RegisterService(context.Background(), &GatewayService{
+		ID:       "test",
+		Upstream: &GatewayUpstream{Type: "roundrobin", Nodes: map[string]int{"127.0.0.1:80": 1}},
+	})
+	if err == nil {
+		t.Error("expected auth error")
 	}
 }

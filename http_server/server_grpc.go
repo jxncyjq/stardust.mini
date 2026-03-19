@@ -1,87 +1,129 @@
 package httpServer
 
 import (
-	"context"
-	"fmt"
 	"net"
+	"time"
 
+	"github.com/jxncyjq/stardust.mini/http_server/interceptor"
 	"github.com/jxncyjq/stardust.mini/logs"
-	"github.com/jxncyjq/stardust.mini/utils"
-	"github.com/jxncyjq/stardust.mini/uuid"
+	"github.com/jxncyjq/stardust.mini/register"
 	"go.uber.org/zap"
 	"google.golang.org/grpc"
 )
 
-// GrpcServer gRPC服务器
+// GrpcServer 增强的 gRPC 服务器，内置拦截器链、服务注册
 type GrpcServer struct {
-	ctx      context.Context
-	cancel   context.CancelFunc
-	addr     string
-	logger   *zap.Logger
+	conf     GrpcServerConfig
 	server   *grpc.Server
 	listener net.Listener
+	registry *register.ServiceRegistry
+	logger   *zap.Logger
 }
 
-// NewGrpcServer 创建gRPC服务器
-func NewGrpcServer(configByte []byte, opts ...grpc.ServerOption) (*GrpcServer, error) {
-	config, err := utils.Bytes2Struct[HttpServerConfig](configByte)
-	if err != nil {
-		return nil, err
+// NewGrpcServer 创建 gRPC 服务器，自动注入拦截器链（metric → tracing → breaker → timeout）
+func NewGrpcServer(conf GrpcServerConfig, opts ...grpc.ServerOption) (*GrpcServer, error) {
+	timeout := time.Duration(conf.Timeout) * time.Millisecond
+	if timeout <= 0 {
+		timeout = 3 * time.Second
 	}
 
-	uuid.InitWorker(config.WorkerID)
-
-	ctx, cancel := context.WithCancel(context.Background())
-	addr := fmt.Sprintf("%s:%d", config.Address, config.Port)
+	// 内置拦截器链（顺序很重要）
+	chainedInterceptors := grpc.ChainUnaryInterceptor(
+		interceptor.UnaryMetricInterceptor(),
+		interceptor.UnaryTracingInterceptor("rpc"),
+		interceptor.UnaryBreakerInterceptor(),
+		interceptor.UnaryTimeoutInterceptor(timeout),
+	)
+	opts = append([]grpc.ServerOption{chainedInterceptors}, opts...)
 
 	return &GrpcServer{
-		ctx:    ctx,
-		cancel: cancel,
-		addr:   addr,
-		logger: logs.GetLogger("grpcServer"),
+		conf:   conf,
 		server: grpc.NewServer(opts...),
+		logger: getLoggerSafe("grpc_server"),
 	}, nil
 }
 
-// Server 获取grpc.Server用于注册服务
+// Server 获取原生 grpc.Server 用于注册服务
 func (s *GrpcServer) Server() *grpc.Server {
 	return s.server
 }
 
-// Startup 启动服务器
+// Start 实现 service.Service 接口（可直接传入 ServiceGroup.Add）
+func (s *GrpcServer) Start() {
+	if err := s.Startup(); err != nil {
+		if s.logger != nil {
+			s.logger.Fatal("grpc server start failed", zap.Error(err))
+		}
+	}
+}
+
+// Startup 启动服务器，实现 service.Startable 接口
 func (s *GrpcServer) Startup() error {
-	listener, err := net.Listen("tcp", s.addr)
+	listener, err := net.Listen("tcp", s.conf.ListenOn)
 	if err != nil {
 		return err
 	}
 	s.listener = listener
+	if s.logger != nil {
+		s.logger.Info("grpc server listening", zap.String("addr", listener.Addr().String()))
+	}
 
-	s.logger.Info("gRPC server listened on:", zap.String("addr", s.addr))
+	// 服务注册（etcd）
+	if s.conf.Etcd != nil {
+		reg, err := register.NewEtcdRegister(s.conf.Etcd)
+		if err != nil {
+			if s.logger != nil {
+				s.logger.Warn("etcd register failed", zap.Error(err))
+			}
+		} else {
+			s.registry = register.NewServiceRegistry(reg)
+			host, port := parseAddr(listener.Addr().String())
+			s.registry.Register(s.conf.Etcd.ServiceName, host, port, s.conf.Etcd.Tags, nil)
+		}
+	}
 
 	go func() {
 		if err := s.server.Serve(listener); err != nil {
-			s.logger.Error("gRPC server error:", zap.Error(err))
+			if s.logger != nil {
+				s.logger.Error("grpc server error", zap.Error(err))
+			}
 		}
 	}()
-
-	go func() {
-		<-s.ctx.Done()
-		s.Stop()
-	}()
-
 	return nil
 }
 
-// Stop 停止服务器
+// Stop 优雅关闭
 func (s *GrpcServer) Stop() {
+	if s.registry != nil {
+		s.registry.Close()
+	}
 	s.server.GracefulStop()
-	s.logger.Info("gRPC server shutdown gracefully")
+	if s.logger != nil {
+		s.logger.Info("grpc server stopped")
+	}
 }
 
-// Address 获取监听地址
+// Address 获取实际监听地址
 func (s *GrpcServer) Address() string {
 	if s.listener != nil {
 		return s.listener.Addr().String()
 	}
-	return s.addr
+	return s.conf.ListenOn
+}
+
+func parseAddr(addr string) (string, int) {
+	host, portStr, _ := net.SplitHostPort(addr)
+	port := 0
+	for _, c := range portStr {
+		port = port*10 + int(c-'0')
+	}
+	return host, port
+}
+
+// getLoggerSafe 安全获取 logger，未初始化时返回 nil
+func getLoggerSafe(module string) *zap.Logger {
+	defer func() {
+		recover()
+	}()
+	return logs.GetLogger(module)
 }
