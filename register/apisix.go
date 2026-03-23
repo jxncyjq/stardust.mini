@@ -13,9 +13,10 @@ import (
 
 // ApisixConfig APISIX 网关配置
 type ApisixConfig struct {
-	AdminURL string `json:"admin_url" toml:"admin_url"` // Admin API 地址, e.g. "http://localhost:9180"
-	APIKey   string `json:"api_key" toml:"api_key"`     // Admin API Key
-	Timeout  int    `json:"timeout" toml:"timeout"`     // 请求超时(秒), 默认 5
+	AdminURL     string `json:"admin_url" toml:"admin_url"`         // Admin API 地址, e.g. "http://localhost:9180"
+	APIKey       string `json:"api_key" toml:"api_key"`             // Admin API Key
+	Timeout      int    `json:"timeout" toml:"timeout"`             // 请求超时(秒), 默认 5
+	UpstreamAddr string `json:"upstream_addr" toml:"upstream_addr"` // 注册到 APISIX 的上游地址, e.g. "host.docker.internal:8080"
 }
 
 // ApisixGateway APISIX 网关实现

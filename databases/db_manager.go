@@ -2,6 +2,7 @@ package databases
 
 import (
 	"encoding/json"
+	"fmt"
 	"sync"
 )
 
@@ -17,10 +18,21 @@ var (
 )
 
 func Init(config []byte) {
-	err := json.Unmarshal(config, &managerConfig)
-	if err != nil {
-		panic(err)
+	if len(config) == 0 {
+		panic("database config is empty")
 	}
+
+	var single Config
+	if err := json.Unmarshal(config, &single); err == nil && single.Name != "" {
+		managerConfig = []*Config{&single}
+		return
+	}
+
+	var multiple []*Config
+	if err := json.Unmarshal(config, &multiple); err != nil {
+		panic(fmt.Errorf("parse database config failed: %w", err))
+	}
+	managerConfig = multiple
 }
 
 func GetDatabaseManager() *DatabaseManager {
