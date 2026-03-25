@@ -2,7 +2,6 @@ package redis
 
 import (
 	"crypto/tls"
-	"sync"
 	"time"
 
 	"github.com/redis/go-redis/v9"
@@ -32,6 +31,8 @@ type RedisCmd interface {
 	redis.Cmdable
 }
 
+// NewRedisCmd creates a Redis client from a single config without mutating the
+// package-level default instance.
 func NewRedisCmd(c *Config) (RedisCmd, error) {
 	if len(c.Addrs) == 0 {
 		return nil, ErrRedisAddrsEmpty
@@ -46,7 +47,7 @@ func NewRedisCmd(c *Config) (RedisCmd, error) {
 		poolTimeout = 4 * time.Second
 	}
 	if c.UseCluster {
-		redisCon = redis.NewClusterClient(&redis.ClusterOptions{
+		return redis.NewClusterClient(&redis.ClusterOptions{
 			Addrs:        c.Addrs,
 			ReadOnly:     c.ReadOnly,
 			Password:     c.Password,
@@ -56,10 +57,9 @@ func NewRedisCmd(c *Config) (RedisCmd, error) {
 			PoolSize:     poolSize,
 			PoolTimeout:  poolTimeout,
 			TLSConfig:    c.TLSConfig,
-		})
-		return redisCon, nil
+		}), nil
 	}
-	redisCon = redis.NewClient(&redis.Options{
+	return redis.NewClient(&redis.Options{
 		Addr:         c.Addrs[0],
 		Password:     c.Password,
 		DB:           c.DbIndex,
@@ -69,28 +69,17 @@ func NewRedisCmd(c *Config) (RedisCmd, error) {
 		PoolSize:     poolSize,
 		PoolTimeout:  poolTimeout,
 		TLSConfig:    c.TLSConfig,
-	})
-	return redisCon, nil
+	}), nil
 }
 
-var (
-	redisCon     RedisCmd
-	redisConOnce sync.Once
-)
+var redisCon RedisCmd
 
+// GetRedisDb returns the default Redis client.
+//
+// The default client is the first entry in the config passed to Init and is
+// created through the same initialization path as GetRedisManager. If Init has
+// not loaded any config yet, GetRedisDb returns nil.
 func GetRedisDb() RedisCmd {
-	redisConOnce.Do(func() {
-		if redisCon != nil {
-			return
-		}
-		if len(managerConfig) == 0 {
-			return
-		}
-		cli, err := NewRedisCmd(managerConfig[0])
-		if err != nil {
-			panic(err)
-		}
-		redisCon = cli
-	})
+	ensureRedisInitialized()
 	return redisCon
 }

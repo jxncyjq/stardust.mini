@@ -25,19 +25,43 @@ func Init(config []byte) {
 	}
 }
 
-func GetRedisManager() *RedisManager {
+// ensureRedisInitialized creates all configured Redis clients once.
+//
+// The first configured client becomes the package default returned by
+// GetRedisDb, and every configured client is also registered in the manager for
+// named lookup. When no config has been loaded yet, initialization is skipped.
+func ensureRedisInitialized() {
+	if len(managerConfig) == 0 {
+		return
+	}
+
 	managerOnce.Do(func() {
-		manager = &RedisManager{
-			redisCmds: make(map[string]RedisCmd),
-		}
-		for _, cfg := range managerConfig {
+		redisCmds := make(map[string]RedisCmd, len(managerConfig))
+		for index, cfg := range managerConfig {
 			cli, err := NewRedisCmd(cfg)
 			if err != nil {
 				panic(err)
 			}
-			manager.redisCmds[cfg.Name] = cli
+			if index == 0 {
+				redisCon = cli
+			}
+			redisCmds[cfg.Name] = cli
+		}
+		manager = &RedisManager{
+			redisCmds: redisCmds,
 		}
 	})
+}
+
+// GetRedisManager returns the named Redis client manager.
+//
+// If Init has not loaded any config yet, GetRedisManager returns an empty
+// manager so callers can safely retry after configuration is available.
+func GetRedisManager() *RedisManager {
+	ensureRedisInitialized()
+	if manager == nil {
+		return &RedisManager{redisCmds: make(map[string]RedisCmd)}
+	}
 	return manager
 }
 
