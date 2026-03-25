@@ -2,6 +2,7 @@ package httpServer
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 
 	"github.com/jxncyjq/stardust.mini/register"
@@ -20,7 +21,11 @@ func NewEtcdResolverBuilder(config *register.EtcdConfig) resolver.Builder {
 }
 
 func (b *etcdResolverBuilder) Build(target resolver.Target, cc resolver.ClientConn, opts resolver.BuildOptions) (resolver.Resolver, error) {
-	reg, err := register.NewEtcdRegister(b.config)
+	byteConfig, err := json.Marshal(b.config)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal etcd config: %w", err)
+	}
+	reg, err := register.NewEtcdRegister(byteConfig)
 	if err != nil {
 		return nil, err
 	}

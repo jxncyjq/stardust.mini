@@ -7,6 +7,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/jxncyjq/stardust.mini/utils"
 	clientv3 "go.etcd.io/etcd/client/v3"
 )
 
@@ -33,6 +34,7 @@ type EtcdRegister struct {
 	ttl      int64
 	prefix   string
 	registry *ServiceRegistry
+	config   EtcdConfig
 }
 
 // Init 初始化etcd单例并注册服务
@@ -65,6 +67,7 @@ func Init(configBytes []byte) {
 			client: client,
 			ttl:    ttl,
 			prefix: "/services/",
+			config: config,
 		}
 
 		// 注册服务
@@ -81,7 +84,12 @@ func GetEtcdRegister() *EtcdRegister {
 }
 
 // NewEtcdRegister 创建etcd注册器
-func NewEtcdRegister(config *EtcdConfig) (*EtcdRegister, error) {
+func NewEtcdRegister(etcdBytes []byte) (*EtcdRegister, error) {
+	config, err := utils.Bytes2Struct[EtcdConfig](etcdBytes)
+	if err != nil {
+		panic(fmt.Sprintf("etcd config error:%s", err.Error()))
+	}
+
 	timeout := 5
 	if config.DialTimeout > 0 {
 		timeout = config.DialTimeout
@@ -104,7 +112,12 @@ func NewEtcdRegister(config *EtcdConfig) (*EtcdRegister, error) {
 		client: client,
 		ttl:    ttl,
 		prefix: "/services/",
+		config: config,
 	}, nil
+}
+
+func (r *EtcdRegister) GetConfig() EtcdConfig {
+	return r.config
 }
 
 // Register 注册服务

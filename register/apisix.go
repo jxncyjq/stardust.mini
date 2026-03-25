@@ -9,6 +9,8 @@ import (
 	"net/http"
 	"sync"
 	"time"
+
+	"github.com/jxncyjq/stardust.mini/utils"
 )
 
 // ApisixConfig APISIX 网关配置
@@ -28,7 +30,12 @@ type ApisixGateway struct {
 }
 
 // NewApisixGateway 创建 APISIX 网关实例
-func NewApisixGateway(config *ApisixConfig) (*ApisixGateway, error) {
+func NewApisixGateway(apisixBytes []byte) (*ApisixGateway, error) {
+	config, err := utils.Bytes2Struct[ApisixConfig](apisixBytes)
+	if err != nil {
+		panic(fmt.Sprintf("Apisix config error:%s", err.Error()))
+	}
+
 	if config.AdminURL == "" {
 		return nil, fmt.Errorf("apisix admin_url is required")
 	}
@@ -37,10 +44,14 @@ func NewApisixGateway(config *ApisixConfig) (*ApisixGateway, error) {
 		timeout = config.Timeout
 	}
 	return &ApisixGateway{
-		config:   *config,
+		config:   config,
 		client:   &http.Client{Timeout: time.Duration(timeout) * time.Second},
 		routeIDs: make(map[string][]string),
 	}, nil
+}
+
+func (a *ApisixGateway) GetApisixConfig() ApisixConfig {
+	return a.config
 }
 
 // RegisterService 注册服务到 APISIX (创建 upstream + routes)

@@ -1,6 +1,7 @@
 package httpServer
 
 import (
+	"encoding/json"
 	"net"
 	"time"
 
@@ -70,7 +71,12 @@ func (s *GrpcServer) Startup() error {
 
 	// 服务注册（etcd）
 	if s.conf.Etcd != nil {
-		reg, err := register.NewEtcdRegister(s.conf.Etcd)
+		byteConfig, err := json.Marshal(s.conf.Etcd)
+		if err != nil {
+			s.logger.Warn("failed to marshal etcd config", zap.Error(err))
+			return err
+		}
+		reg, err := register.NewEtcdRegister(byteConfig)
 		if err != nil {
 			if s.logger != nil {
 				s.logger.Warn("etcd register failed", zap.Error(err))

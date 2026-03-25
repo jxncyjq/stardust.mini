@@ -17,7 +17,7 @@ type Handler[Req any, Resp any] struct {
 	Path string // 路径
 	Name string
 	Tags []string
-	Func func(*gin.Context, Req, Resp) error
+	Func func(*gin.Context, Req, Resp)
 }
 
 // 抽象接口
@@ -30,7 +30,7 @@ type IHandler interface {
 func NewHandler[Req any, Resp any](
 	name string,
 	tags []string,
-	f func(*gin.Context, Req, Resp) error,
+	f func(*gin.Context, Req, Resp),
 ) *Handler[Req, Resp] {
 	return &Handler[Req, Resp]{
 		Name: name,
@@ -57,10 +57,11 @@ func (h *Handler[Req, Resp]) GetFunc() gin.HandlerFunc {
 			return
 		}
 		// 执行体
-		if err := h.Func(c, req, resp); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-			return
-		}
+		// if err := h.Func(c, req, resp); err != nil {
+		// 	c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		// 	return
+		// }
+		h.Func(c, req, resp)
 	}
 }
 

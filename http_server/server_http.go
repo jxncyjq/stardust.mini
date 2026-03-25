@@ -160,6 +160,19 @@ func (m *HttpServer) Post(path string, group string, handler IHandler) {
 	m.Handle(http.MethodPost, path, handler)
 }
 
+func (m *HttpServer) Put(path string, group string, handler IHandler) {
+	if group != "" {
+		if _, exists := m.group[group]; !exists {
+			m.logger.Error("group not found", zap.String("group", group))
+			return
+		}
+		m.group[group].Group.PUT(fmt.Sprintf("/%s", path), handler.GetFunc())
+		m.logger.Info("http handler registered to group:", logs.String("path", path), logs.String("prefix", m.group[group].Prefix))
+		return
+	}
+	m.Handle(http.MethodPut, path, handler)
+}
+
 func (m *HttpServer) AddNativeHandler(method string, path string, handler gin.HandlerFunc) {
 	path, _ = url.JoinPath(m.path, "api", path)
 	m.engine.Handle(method, path, handler)

@@ -2,8 +2,10 @@ package tracing
 
 import (
 	"context"
+	"fmt"
 	"io"
 
+	"github.com/jxncyjq/stardust.mini/utils"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
@@ -17,8 +19,8 @@ import (
 
 // JaegerConfig Jaeger配置
 type JaegerConfig struct {
-	ServiceName string `json:"service_name" yaml:"service_name"`
-	Endpoint    string `json:"endpoint" yaml:"endpoint"` // OTLP HTTP endpoint
+	ServiceName string  `json:"service_name" yaml:"service_name"`
+	Endpoint    string  `json:"endpoint" yaml:"endpoint"` // OTLP HTTP endpoint
 	SampleRate  float64 `json:"sample_rate" yaml:"sample_rate"`
 }
 
@@ -29,7 +31,12 @@ type JaegerTracer struct {
 }
 
 // NewJaegerTracer 创建Jaeger追踪器
-func NewJaegerTracer(config *JaegerConfig) (*JaegerTracer, error) {
+func NewJaegerTracer(jaegerBytes []byte) (*JaegerTracer, error) {
+	config, err := utils.Bytes2Struct[JaegerConfig](jaegerBytes)
+	if err != nil {
+		panic(fmt.Sprintf("jaeger Config error:%s", err.Error()))
+	}
+
 	exporter, err := otlptracehttp.New(context.Background(),
 		otlptracehttp.WithEndpoint(config.Endpoint),
 		otlptracehttp.WithInsecure(),
