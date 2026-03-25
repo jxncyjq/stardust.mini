@@ -2,6 +2,7 @@ package redis
 
 import (
 	"crypto/tls"
+	"sync"
 	"time"
 
 	"github.com/redis/go-redis/v9"
@@ -72,8 +73,24 @@ func NewRedisCmd(c *Config) (RedisCmd, error) {
 	return redisCon, nil
 }
 
-var redisCon RedisCmd
+var (
+	redisCon     RedisCmd
+	redisConOnce sync.Once
+)
 
 func GetRedisDb() RedisCmd {
+	redisConOnce.Do(func() {
+		if redisCon != nil {
+			return
+		}
+		if len(managerConfig) == 0 {
+			return
+		}
+		cli, err := NewRedisCmd(managerConfig[0])
+		if err != nil {
+			panic(err)
+		}
+		redisCon = cli
+	})
 	return redisCon
 }
