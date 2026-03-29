@@ -324,11 +324,16 @@ func TestApisixGateway_RegisterAndDeregister(t *testing.T) {
 	}))
 	defer server.Close()
 
-	gw, err := NewApisixGateway(&ApisixConfig{
+	apisixBytes, err := json.Marshal(&ApisixConfig{
 		AdminURL: server.URL,
 		APIKey:   "test-key",
 		Timeout:  5,
 	})
+	if err != nil {
+		t.Fatalf("json.Marshal(apisix config) error = %v", err)
+	}
+
+	gw, err := NewApisixGateway(apisixBytes)
 	if err != nil {
 		t.Fatalf("NewApisixGateway failed: %v", err)
 	}
@@ -386,7 +391,12 @@ func TestApisixGateway_RegisterAndDeregister(t *testing.T) {
 }
 
 func TestApisixGateway_InvalidConfig(t *testing.T) {
-	_, err := NewApisixGateway(&ApisixConfig{})
+	apisixBytes, err := json.Marshal(&ApisixConfig{})
+	if err != nil {
+		t.Fatalf("json.Marshal(empty apisix config) error = %v", err)
+	}
+
+	_, err = NewApisixGateway(apisixBytes)
 	if err == nil {
 		t.Error("expected error for empty AdminURL")
 	}
@@ -398,8 +408,13 @@ func TestApisixGateway_AuthFailure(t *testing.T) {
 	}))
 	defer server.Close()
 
-	gw, _ := NewApisixGateway(&ApisixConfig{AdminURL: server.URL, APIKey: "wrong-key"})
-	err := gw.RegisterService(context.Background(), &GatewayService{
+	apisixBytes, err := json.Marshal(&ApisixConfig{AdminURL: server.URL, APIKey: "wrong-key"})
+	if err != nil {
+		t.Fatalf("json.Marshal(apisix wrong-key config) error = %v", err)
+	}
+
+	gw, _ := NewApisixGateway(apisixBytes)
+	err = gw.RegisterService(context.Background(), &GatewayService{
 		ID:       "test",
 		Upstream: &GatewayUpstream{Type: "roundrobin", Nodes: map[string]int{"127.0.0.1:80": 1}},
 	})

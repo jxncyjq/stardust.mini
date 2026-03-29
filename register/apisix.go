@@ -15,10 +15,11 @@ import (
 
 // ApisixConfig APISIX 网关配置
 type ApisixConfig struct {
-	AdminURL     string `json:"admin_url" toml:"admin_url"`         // Admin API 地址, e.g. "http://localhost:9180"
-	APIKey       string `json:"api_key" toml:"api_key"`             // Admin API Key
-	Timeout      int    `json:"timeout" toml:"timeout"`             // 请求超时(秒), 默认 5
-	UpstreamAddr string `json:"upstream_addr" toml:"upstream_addr"` // 注册到 APISIX 的上游地址, e.g. "host.docker.internal:8080"
+	AdminURL         string `json:"admin_url" toml:"admin_url"`                   // Admin API 地址, e.g. "http://localhost:9180"
+	APIKey           string `json:"api_key" toml:"api_key"`                       // Admin API Key
+	Timeout          int    `json:"timeout" toml:"timeout"`                       // 请求超时(秒), 默认 5
+	UpstreamAddr     string `json:"upstream_addr" toml:"upstream_addr"`           // HTTP 上游地址, e.g. "host.docker.internal:8080"
+	GrpcUpstreamAddr string `json:"grpc_upstream_addr" toml:"grpc_upstream_addr"` // gRPC 上游地址, e.g. "host.docker.internal:9103"
 }
 
 // ApisixGateway APISIX 网关实现
@@ -58,11 +59,7 @@ func (a *ApisixGateway) GetApisixConfig() ApisixConfig {
 func (a *ApisixGateway) RegisterService(ctx context.Context, svc *GatewayService) error {
 	// 1. 创建/更新 upstream
 	upstreamID := svc.ID
-	upstreamBody := map[string]interface{}{
-		"type":  svc.Upstream.Type,
-		"nodes": svc.Upstream.Nodes,
-		"name":  svc.Name,
-	}
+	upstreamBody := toUpstreamBody(svc.Upstream, svc.Name)
 	if err := a.putResource(ctx, "upstreams", upstreamID, upstreamBody); err != nil {
 		return fmt.Errorf("create upstream failed: %w", err)
 	}
@@ -75,9 +72,13 @@ func (a *ApisixGateway) RegisterService(ctx context.Context, svc *GatewayService
 	for i, route := range svc.Routes {
 		routeID := fmt.Sprintf("%s-route-%d", svc.ID, i)
 		routeBody := map[string]interface{}{
-			"uri":         route.URI,
-			"upstream_id": upstreamID,
-			"name":        route.Name,
+			"uri":  route.URI,
+			"name": route.Name,
+		}
+		if route.Upstream != nil {
+			routeBody["upstream"] = toUpstreamBody(route.Upstream, route.Name)
+		} else {
+			routeBody["upstream_id"] = upstreamID
 		}
 		if len(route.Methods) > 0 {
 			routeBody["methods"] = route.Methods
@@ -92,6 +93,18 @@ func (a *ApisixGateway) RegisterService(ctx context.Context, svc *GatewayService
 	}
 
 	return nil
+}
+
+func toUpstreamBody(upstream *GatewayUpstream, name string) map[string]interface{} {
+	body := map[string]interface{}{
+		"type":  upstream.Type,
+		"nodes": upstream.Nodes,
+		"name":  name,
+	}
+	if upstream.Scheme != "" {
+		body["scheme"] = upstream.Scheme
+	}
+	return body
 }
 
 // DeregisterService 从 APISIX 注销服务 (删除 routes + upstream)
