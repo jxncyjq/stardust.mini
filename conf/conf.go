@@ -2,56 +2,146 @@ package conf
 
 import (
 	"encoding/json"
+	"errors"
 	"os"
+	"strings"
+	"sync"
 
-	"github.com/BurntSushi/toml"
+	"github.com/spf13/viper"
 )
 
 var (
-	config map[string]interface{}
+	config   map[string]interface{}
+	vp       *viper.Viper
+	mu       sync.RWMutex
+	initOnce sync.Once
+	initErr  error
 )
 
-func Init() {
-	var configPath string
-	configPath = os.Getenv("runConfig")
-	config = make(map[string]interface{})
-	_, err := toml.DecodeFile(configPath, &config)
-	if err != nil {
-		panic(err)
-	}
-	globalInfo, ok := config["global"].(map[string]interface{})
-	if !ok {
-		panic("global configuration is missing in the config file")
-	}
-	// 设置配置的全局变量
-	appName, ok := globalInfo["app_name"].(string)
-	if !ok {
-		panic("app name is missing in the global configuration")
-	}
-	appVersion, ok := globalInfo["app_version"].(string)
-	if !ok {
-		panic("app version is missing in the global configuration")
-	}
-	redisKeyPrefix, ok := globalInfo["redis_key_prefix"].(string)
-	if !ok {
-		panic("redis key prefix is missing in the global configuration")
+func resolveConfigPath() string {
+	runConfig := os.Getenv("runConfig")
+	if runConfig != "" {
+		return runConfig
 	}
 
-	os.Setenv("APP_NAME", appName)
-	os.Setenv("APP_VERSION", appVersion)
-	os.Setenv("REDIS_KEY_PREFIX", redisKeyPrefix)
+	isDebug := os.Getenv("ISDEBUG")
+	if isDebug != "" && isDebug != "0" {
+		if devConf := os.Getenv("devConf"); devConf != "" {
+			return devConf
+		}
+	}
+
+	return os.Getenv("prodConf")
+}
+
+func Init() {
+	initOnce.Do(func() {
+		mu.Lock()
+		defer mu.Unlock()
+
+		configPath := resolveConfigPath()
+		if configPath == "" {
+			initErr = errors.New("config path is empty, set runConfig or devConf/prodConf")
+			return
+		}
+
+		v := viper.New()
+		v.SetConfigFile(configPath)
+		v.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))
+		v.AutomaticEnv()
+
+		err := v.ReadInConfig()
+		if err != nil {
+			initErr = err
+			return
+		}
+
+		globalInfo := v.GetStringMap("global")
+		if len(globalInfo) == 0 {
+			initErr = errors.New("global configuration is missing in the config file")
+			return
+		}
+
+		if !v.IsSet("global.app_name") {
+			initErr = errors.New("app name is missing in the global configuration")
+			return
+		}
+		appName := v.GetString("global.app_name")
+
+		if !v.IsSet("global.app_version") {
+			initErr = errors.New("app version is missing in the global configuration")
+			return
+		}
+		appVersion := v.GetString("global.app_version")
+
+		if !v.IsSet("global.redis_key_prefix") {
+			initErr = errors.New("redis key prefix is missing in the global configuration")
+			return
+		}
+		redisKeyPrefix := v.GetString("global.redis_key_prefix")
+
+		vp = v
+		config = v.AllSettings()
+
+		os.Setenv("APP_NAME", appName)
+		os.Setenv("APP_VERSION", appVersion)
+		os.Setenv("REDIS_KEY_PREFIX", redisKeyPrefix)
+	})
+
+	if initErr != nil {
+		panic(initErr)
+	}
 }
 
 func Get(key string) []byte {
-	if config == nil {
+	mu.RLock()
+	cfg := config
+	v := vp
+	mu.RUnlock()
+
+	if cfg == nil {
 		Init()
+		mu.RLock()
+		cfg = config
+		v = vp
+		mu.RUnlock()
 	}
-	if value, exists := config[key]; exists {
+
+	if value, exists := cfg[key]; exists {
+		if strValue, ok := value.(string); ok {
+			return []byte(strValue)
+		}
 		bytes, err := json.Marshal(value)
 		if err != nil {
 			return nil
 		}
 		return bytes
 	}
+
+	if v != nil && v.IsSet(key) {
+		value := v.Get(key)
+		if strValue, ok := value.(string); ok {
+			return []byte(strValue)
+		}
+		bytes, err := json.Marshal(value)
+		if err != nil {
+			return nil
+		}
+		return bytes
+	}
+
 	return nil
+}
+
+func GetConfigInstance() *viper.Viper {
+	mu.RLock()
+	v := vp
+	mu.RUnlock()
+	if v == nil {
+		Init()
+		mu.RLock()
+		v = vp
+		mu.RUnlock()
+	}
+	return v
 }

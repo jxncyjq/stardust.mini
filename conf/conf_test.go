@@ -1,10 +1,19 @@
 package conf
 
 import (
+	"encoding/json"
 	"io/ioutil"
 	"os"
+	"sync"
 	"testing"
 )
+
+func resetConfStateForTest() {
+	config = nil
+	vp = nil
+	initErr = nil
+	initOnce = sync.Once{}
+}
 
 func writeTempToml(content string) (string, error) {
 	tmpfile, err := ioutil.TempFile("", "testconf-*.toml")
@@ -20,8 +29,37 @@ func writeTempToml(content string) (string, error) {
 }
 
 func TestInitAndGet(t *testing.T) {
-	devContent := "key1 = 'dev_value'"
-	prodContent := "key1 = 'prod_value'"
+	t.Cleanup(func() {
+		os.Unsetenv("runConfig")
+		os.Unsetenv("ISDEBUG")
+		os.Unsetenv("devConf")
+		os.Unsetenv("prodConf")
+		os.Unsetenv("GLOBAL_APP_NAME")
+		resetConfStateForTest()
+	})
+
+	devContent := `[global]
+app_name = "dev-app"
+app_version = "0.0.1"
+redis_key_prefix = "dev:key"
+
+[logger]
+level = 0
+path = "./logs"
+
+key1 = "dev_value"
+`
+	prodContent := `[global]
+app_name = "prod-app"
+app_version = "0.0.2"
+redis_key_prefix = "prod:key"
+
+[logger]
+level = 1
+path = "./prod-logs"
+
+key1 = "prod_value"
+`
 	devPath, err := writeTempToml(devContent)
 	if err != nil {
 		t.Fatalf("Failed to create dev toml: %v", err)
@@ -33,21 +71,66 @@ func TestInitAndGet(t *testing.T) {
 	}
 	defer os.Remove(prodPath)
 
+	os.Setenv("runConfig", devPath)
+	resetConfStateForTest()
+	Init()
+
+	if got := os.Getenv("APP_NAME"); got != "dev-app" {
+		t.Fatalf("APP_NAME = %s, want dev-app", got)
+	}
+
+	loggerBytes := Get("logger")
+	if loggerBytes == nil {
+		t.Fatal("Get(logger) = nil")
+	}
+
+	var logger map[string]interface{}
+	if err := json.Unmarshal(loggerBytes, &logger); err != nil {
+		t.Fatalf("json.Unmarshal(Get(logger)) error: %v", err)
+	}
+	if logger["path"] != "./logs" {
+		t.Fatalf("logger.path = %v, want ./logs", logger["path"])
+	}
+
+	os.Setenv("runConfig", prodPath)
+	Init()
+
+	if got := os.Getenv("APP_NAME"); got != "dev-app" {
+		t.Fatalf("APP_NAME = %s, want dev-app after second Init call", got)
+	}
+}
+
+func TestInitWithDebugConfigAndEnvOverride(t *testing.T) {
+	t.Cleanup(func() {
+		os.Unsetenv("runConfig")
+		os.Unsetenv("ISDEBUG")
+		os.Unsetenv("devConf")
+		os.Unsetenv("prodConf")
+		os.Unsetenv("GLOBAL_APP_NAME")
+		resetConfStateForTest()
+	})
+
+	devContent := `[global]
+app_name = "dev-app"
+app_version = "0.0.1"
+redis_key_prefix = "dev:key"
+`
+	devPath, err := writeTempToml(devContent)
+	if err != nil {
+		t.Fatalf("Failed to create dev toml: %v", err)
+	}
+	defer os.Remove(devPath)
+
+	os.Unsetenv("runConfig")
 	os.Setenv("ISDEBUG", "1")
 	os.Setenv("devConf", devPath)
 	os.Unsetenv("prodConf")
-	config = nil
-	Init()
-	if v := Get("key1"); string(v) != "dev_value" {
-		t.Errorf("Expected dev_value, got %v", string(v))
-	}
+	os.Setenv("GLOBAL_APP_NAME", "env-dev-app")
 
-	os.Unsetenv("ISDEBUG")
-	os.Setenv("prodConf", prodPath)
-	os.Unsetenv("devConf")
-	config = nil
+	resetConfStateForTest()
 	Init()
-	if v := Get("key1"); string(v) != "prod_value" {
-		t.Errorf("Expected prod_value, got %v", string(v))
+
+	if got := os.Getenv("APP_NAME"); got != "env-dev-app" {
+		t.Fatalf("APP_NAME = %s, want env-dev-app", got)
 	}
 }
