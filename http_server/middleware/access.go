@@ -1,4 +1,4 @@
-package httpServer
+package middleware
 
 import (
 	"context"
@@ -16,6 +16,7 @@ import (
 func Access() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		//在这里处理拦截请求的逻辑
+		initRedisClient()
 		jwtStr := c.GetHeader("jwt")
 
 		if jwtStr != "" {

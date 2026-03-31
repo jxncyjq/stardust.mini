@@ -14,6 +14,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/gin-gonic/gin/binding"
 	"github.com/go-playground/validator/v10"
+	"github.com/jxncyjq/stardust.mini/http_server/middleware"
 	"github.com/jxncyjq/stardust.mini/logs"
 	"github.com/jxncyjq/stardust.mini/utils"
 	"github.com/jxncyjq/stardust.mini/uuid"
@@ -50,13 +51,13 @@ func NewHttpServer(configByte []byte) (*HttpServer, error) {
 
 	addr := fmt.Sprintf("%s:%d", config.Address, config.Port)
 	if config.Cors {
-		engine.Use(Cors())
+		engine.Use(middleware.Cors())
 	}
 	if config.RequestLog {
-		engine.Use(Request())
+		engine.Use(middleware.Request())
 	}
 	if config.Access {
-		engine.Use(Access())
+		engine.Use(middleware.Access())
 	}
 
 	if config.Path != "" && config.Path[0] != '/' {
