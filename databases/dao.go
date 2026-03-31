@@ -265,7 +265,7 @@ func (m *OrmBaseDao) FindById(id interface{}, bean interface{}) (bool, error) {
 
 func (m *OrmBaseDao) FindOne(bean interface{}) (bool, error) {
 	db := m.DB()
-	result := db.First(bean)
+	result := db.First(bean, bean)
 	if result.Error != nil {
 		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
 			return false, nil
