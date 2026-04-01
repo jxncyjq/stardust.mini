@@ -6,6 +6,7 @@ import (
 	"io"
 
 	"github.com/gin-gonic/gin"
+	"go.opentelemetry.io/otel/trace"
 	"go.uber.org/zap"
 )
 
@@ -49,7 +50,13 @@ func Request() gin.HandlerFunc {
 
 		c.Next()
 
+		spanCtx := trace.SpanFromContext(c.Request.Context()).SpanContext()
+		traceID := spanCtx.TraceID().String()
+		spanID := spanCtx.SpanID().String()
+
 		logger.Info("request",
+			zap.String("trace_id", traceID),
+			zap.String("span_id", spanID),
 			zap.String("method", method),
 			zap.String("uri", uri),
 			zap.Int("status", blw.Status()),
@@ -59,6 +66,8 @@ func Request() gin.HandlerFunc {
 			zap.String("body", requestBody),
 		)
 		logger.Info("response",
+			zap.String("trace_id", traceID),
+			zap.String("span_id", spanID),
 			zap.String("response", blw.body.String()),
 		)
 	}
