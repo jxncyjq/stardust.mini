@@ -23,3 +23,7 @@ func GetUuidString() string {
 func GenSessionId() string {
 	return fmt.Sprintf("%d", uuidWorker.Get())
 }
+
+func GetUuidInt64() int64 {
+	return uuidWorker.Get()
+}

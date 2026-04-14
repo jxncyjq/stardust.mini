@@ -8,6 +8,7 @@ import (
 	"net/url"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -174,8 +175,23 @@ func (m *HttpServer) Put(path string, group string, handler IHandler) {
 	m.Handle(http.MethodPut, path, handler)
 }
 
+func joinHTTPPath(parts ...string) string {
+	segments := make([]string, 0, len(parts))
+	for _, part := range parts {
+		trimmed := strings.Trim(part, "/")
+		if trimmed == "" {
+			continue
+		}
+		segments = append(segments, trimmed)
+	}
+	if len(segments) == 0 {
+		return "/"
+	}
+	return "/" + strings.Join(segments, "/")
+}
+
 func (m *HttpServer) AddNativeHandler(method string, path string, handler gin.HandlerFunc) {
-	path, _ = url.JoinPath(m.path, "api", path)
+	path = joinHTTPPath(m.path, "api", path)
 	m.engine.Handle(method, path, handler)
 	m.logger.Info("http native handler registered:", logs.String("method", method), logs.String("path", path))
 }
