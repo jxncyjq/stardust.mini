@@ -8,7 +8,7 @@ import (
 
 type DatabaseManager struct {
 	mu sync.RWMutex
-	db map[string]DBInterface
+	db map[string]DBConn
 }
 
 var (
@@ -41,7 +41,7 @@ func GetDatabaseManager() *DatabaseManager {
 	}
 	managerOnce.Do(func() {
 		manager = &DatabaseManager{
-			db: make(map[string]DBInterface),
+			db: make(map[string]DBConn),
 		}
 		for _, cfg := range managerConfig {
 			cfg.SetDefaults()
@@ -64,7 +64,7 @@ func (m *DatabaseManager) GetDBDao(name string) BaseDao {
 	return nil
 }
 
-func (m *DatabaseManager) GetDbInterface(name string) DBInterface {
+func (m *DatabaseManager) GetDbInterface(name string) DBConn {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	if db, exists := m.db[name]; exists {

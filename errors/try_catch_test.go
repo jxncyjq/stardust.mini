@@ -27,3 +27,19 @@ func TestTryCatchChain(t *testing.T) {
 	fmt.Println("Program continues...")
 
 }
+
+func TestTryCatchNilCatchShouldRepanic(t *testing.T) {
+	defer func() {
+		if r := recover(); r == nil {
+			t.Fatalf("TryFunc(fun, nil, finally) did not repanic")
+		}
+	}()
+
+	TryFunc(
+		func() {
+			panic("boom")
+		},
+		nil,
+		func() {},
+	)
+}

@@ -2,6 +2,7 @@ package httpServer
 
 import (
 	"context"
+	"sync"
 	"time"
 
 	"github.com/gorilla/websocket"
@@ -30,7 +31,8 @@ type Client struct {
 	handler   codec.IMessageProcessor
 	userId    string // 用户ID,方便根据用户ID获取客户端
 	send      chan []byte
-	closed    chan struct{}  // 用于关闭连接的通道
+	closed    chan struct{} // 用于关闭连接的通道
+	closeOnce sync.Once
 	cm        IClientManager // 客户端管理器接口
 }
 
@@ -62,7 +64,19 @@ func (c *Client) GetConn() *websocket.Conn {
 }
 
 func (c *Client) Send(message []byte) {
-	c.send <- message
+	// 已关闭连接直接丢弃，避免向已退出连接继续积压消息。
+	select {
+	case <-c.closed:
+		return
+	default:
+	}
+
+	// 非阻塞发送，避免 send 缓冲区打满导致调用方永久阻塞。
+	select {
+	case c.send <- message:
+	default:
+		c.logger.Warn("send buffer full, drop message", logs.String("sessionId", c.sessionId))
+	}
 }
 
 // 发送数据
@@ -75,18 +89,8 @@ func (c *Client) SendMessage() error {
 
 	for {
 		select {
-		case message, ok := <-c.send:
+		case message := <-c.send:
 			c.conn.SetWriteDeadline(time.Now().Add(10 * time.Second))
-			if !ok {
-				err := c.conn.WriteMessage(websocket.CloseMessage, []byte{})
-				if err != nil {
-					c.logger.Error("Failed to write close message", logs.String("SessionId", c.sessionId), logs.ErrorInfo(err))
-					<-c.closed
-					return err
-				}
-				c.logger.Info("Send channel closed, closing connection", logs.String("SessionId", c.sessionId))
-				return nil
-			}
 			w, err := c.conn.NextWriter(websocket.TextMessage)
 			if err != nil {
 				c.logger.Error("Failed to get next writer", logs.String("SessionId", c.sessionId), logs.ErrorInfo(err))
@@ -146,16 +150,19 @@ func (c *Client) ReceivedMessage() <-chan []byte {
 				c.logger.Error("message handler error:", logs.ErrorInfo(err))
 				continue
 			}
-			c.send <- []byte(resultMsg)
+			c.Send([]byte(resultMsg))
 		}
 	}()
 	return messageChan
 }
 
 func (c *Client) Close() error {
-	close(c.send)         // 关闭发送通道
-	close(c.closed)       // 关闭closed通道
-	return c.conn.Close() // 关闭WebSocket连接
+	var closeErr error
+	c.closeOnce.Do(func() {
+		close(c.closed)
+		closeErr = c.conn.Close()
+	})
+	return closeErr
 }
 
 func (c *Client) Listen() {

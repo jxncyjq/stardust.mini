@@ -3,6 +3,7 @@ package nats
 import (
 	"context"
 	"errors"
+	"sync"
 	"time"
 
 	"github.com/jxncyjq/stardust.mini/logs"
@@ -18,18 +19,20 @@ type NatsConnection struct {
 	config     *NatsConfig
 	name       string
 	js         nats.JetStreamContext
+	jsMu       sync.RWMutex
 	streamInfo *nats.StreamInfo
 	subject    []*nats.Subscription
 	useStream  bool
 	logger     *zap.Logger
 	url        string
 	stopChan   chan struct{}
-	ctx    context.Context
-	cancel context.CancelFunc
+	ctx        context.Context
+	cancel     context.CancelFunc
 	// 在结构体中添加消息通道
 	messageChan chan *nats.Msg
 	// handler 映射表
-	handlers map[string]func(*nats.Msg)
+	handlers   map[string]func(*nats.Msg)
+	handlersMu sync.RWMutex
 }
 
 // NatsConfig NATS配置结构体

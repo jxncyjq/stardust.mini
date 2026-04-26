@@ -12,11 +12,11 @@ import (
 	"gorm.io/plugin/dbresolver"
 )
 
-// DBInterface 数据库接口 - 直接使用gorm.DB
-type DBInterface *gorm.DB
+// DBConn 数据库接口 - 直接使用gorm.DB
+type DBConn *gorm.DB
 
-func NewDBInterface(dbConfig *Config) DBInterface {
-	var dbConn DBInterface
+func NewDBInterface(dbConfig *Config) DBConn {
+	var dbConn DBConn
 	var err error
 	if dbConfig.UseMasterSlave {
 		dbConn, err = NewMSConn(dbConfig)
@@ -37,7 +37,7 @@ func NewDBInterface(dbConfig *Config) DBInterface {
 // postgres fmt.Sprintf("host=%s port=%s user=%s dbname=%s password=%s sslmode=%s sslcert=%s sslkey=%s sslrootcert=%s",
 //
 //	host, port, user, name, pass, sslMode, SslCert, SslKey, SslRootCert)
-func NewSingleConn(c *Config) (DBInterface, error) {
+func NewSingleConn(c *Config) (DBConn, error) {
 	if nil == c || "" == c.Master {
 		return nil, errors.New("config or config.Url can not be null")
 	}
@@ -72,7 +72,7 @@ func NewSingleConn(c *Config) (DBInterface, error) {
 }
 
 // NewMSConn 初始化主从数据库连接, master不能为空，slaves可以为空
-func NewMSConn(c *Config) (DBInterface, error) {
+func NewMSConn(c *Config) (DBConn, error) {
 	if nil == c || "" == c.Master {
 		return nil, errors.New("config or config.Url can not be null")
 	}

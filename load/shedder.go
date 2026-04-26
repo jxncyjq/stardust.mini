@@ -3,6 +3,8 @@ package load
 import (
 	"errors"
 	"math"
+	"runtime"
+	"runtime/metrics"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -56,6 +58,9 @@ type AdaptiveShedder struct {
 	droppedRecently atomic.Bool
 	passCounter     *rollingCounter
 	rtCounter       *rollingCounter
+	cpuMetrics      []string
+	lastCPUSeconds  float64
+	lastCPUCheck    time.Time
 }
 
 type rollingCounter struct {
@@ -144,6 +149,9 @@ func NewAdaptiveShedder(opts ...Option) Shedder {
 	bucketDuration := as.windowSize / time.Duration(as.bucketNum)
 	as.passCounter = newRollingCounter(as.bucketNum, bucketDuration)
 	as.rtCounter = newRollingCounter(as.bucketNum, bucketDuration)
+	as.cpuMetrics = discoverCPUMetrics()
+	as.lastCPUCheck = time.Now()
+	as.lastCPUSeconds = readCPUSeconds(as.cpuMetrics)
 	return as
 }
 
@@ -173,6 +181,12 @@ func (as *AdaptiveShedder) shouldDrop() bool {
 }
 
 func (as *AdaptiveShedder) systemOverloaded() bool {
+	if as.cpuThreshold > 0 {
+		if cpu := as.currentCPU(); cpu >= as.cpuThreshold {
+			return true
+		}
+	}
+
 	if as.droppedRecently.Load() {
 		if time.Since(as.dropTime) < time.Second {
 			return true
@@ -180,6 +194,73 @@ func (as *AdaptiveShedder) systemOverloaded() bool {
 		as.droppedRecently.Store(false)
 	}
 	return false
+}
+
+func discoverCPUMetrics() []string {
+	descs := metrics.All()
+	names := make([]string, 0, len(descs))
+	for _, d := range descs {
+		if d.Kind != metrics.KindFloat64 {
+			continue
+		}
+		if len(d.Name) >= len("/cpu/classes/") && d.Name[:len("/cpu/classes/")] == "/cpu/classes/" {
+			names = append(names, d.Name)
+		}
+	}
+	return names
+}
+
+func readCPUSeconds(metricNames []string) float64 {
+	if len(metricNames) == 0 {
+		return 0
+	}
+	samples := make([]metrics.Sample, len(metricNames))
+	for i, name := range metricNames {
+		samples[i].Name = name
+	}
+	metrics.Read(samples)
+
+	var total float64
+	for _, sample := range samples {
+		total += sample.Value.Float64()
+	}
+	return total
+}
+
+// currentCPU 返回进程当前 CPU 使用率，单位千分比（1000 = 100% * GOMAXPROCS）。
+func (as *AdaptiveShedder) currentCPU() int64 {
+	as.mu.Lock()
+	defer as.mu.Unlock()
+
+	now := time.Now()
+	current := readCPUSeconds(as.cpuMetrics)
+	elapsed := now.Sub(as.lastCPUCheck)
+	if elapsed <= 0 {
+		as.lastCPUCheck = now
+		as.lastCPUSeconds = current
+		return 0
+	}
+
+	delta := current - as.lastCPUSeconds
+	as.lastCPUCheck = now
+	as.lastCPUSeconds = current
+	if delta <= 0 {
+		return 0
+	}
+
+	gomaxprocs := runtime.GOMAXPROCS(0)
+	if gomaxprocs <= 0 {
+		gomaxprocs = 1
+	}
+
+	usage := delta / elapsed.Seconds() / float64(gomaxprocs) * 1000
+	if usage < 0 {
+		return 0
+	}
+	if usage > 1000 {
+		return 1000
+	}
+	return int64(usage)
 }
 
 // maxFlight 基于 Little's Law 计算最大并发数

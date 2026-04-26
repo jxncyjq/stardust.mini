@@ -1,27 +1,47 @@
 package jwt
 
 import (
-	"fmt"
+	"errors"
+	"sync"
 	"time"
 
 	jwt "github.com/golang-jwt/jwt/v5"
+	"github.com/jxncyjq/stardust.mini/logs"
+	"go.uber.org/zap"
 )
+
+var (
+	jwtLogger     *zap.Logger
+	jwtLoggerOnce sync.Once
+)
+
+func logger() *zap.Logger {
+	jwtLoggerOnce.Do(func() {
+		defer func() {
+			if recover() != nil {
+				jwtLogger = zap.NewNop()
+			}
+		}()
+		jwtLogger = logs.GetLogger("jwt")
+	})
+	return jwtLogger
+}
 
 func JWTDecrypt(tokenString, secret string) (jwt.MapClaims, bool) {
 	token, err := jwt.Parse(tokenString, func(token *jwt.Token) (interface{}, error) {
 		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
-			return nil, fmt.Errorf("unexpected signing method")
+			return nil, errors.New("unexpected signing method")
 		}
 		return []byte(secret), nil
 	})
 	if err != nil {
-		fmt.Println(err)
+		logger().Warn("jwt decrypt failed", zap.Error(err))
 		return nil, false
 	}
 	if claims, ok := token.Claims.(jwt.MapClaims); ok && token.Valid {
 		return claims, true
 	} else {
-		fmt.Println(err)
+		logger().Warn("jwt claims invalid")
 		return nil, false
 	}
 }
@@ -48,6 +68,10 @@ func JWTEncryptWithExpiry(id string, myToken string, secret string, expiry time.
 	}
 
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
-	jwtStr, _ := token.SignedString(mySigningKey)
+	jwtStr, err := token.SignedString(mySigningKey)
+	if err != nil {
+		logger().Error("jwt sign failed", zap.Error(err))
+		return ""
+	}
 	return jwtStr
 }

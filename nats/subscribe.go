@@ -202,7 +202,9 @@ func (s *NatsConnection) Start() {
 					s.logger.Error("Failed to recreate JetStream context after reconnect", zap.Error(err))
 					continue
 				}
+				s.jsMu.Lock()
 				s.js = js
+				s.jsMu.Unlock()
 
 				// 确保 Stream 存在
 				if err := s.EnsureStream(); err != nil {
@@ -247,10 +249,12 @@ func (s *NatsConnection) StartSubscription(subject, durableName string, handler 
 	}
 
 	// 注册 handler 到映射表
+	s.handlersMu.Lock()
 	if s.handlers == nil {
 		s.handlers = make(map[string]func(*nats.Msg))
 	}
 	s.handlers[subject] = handler
+	s.handlersMu.Unlock()
 
 	if s.useStream {
 		// JetStream 场景

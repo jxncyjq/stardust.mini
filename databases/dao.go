@@ -20,9 +20,9 @@ type Dao interface {
 	UpdateById(id interface{}, bean interface{}) (int64, error)
 
 	// 新增的 Upsert 方法
-	Upsert(where interface{}, bean interface{}) (int64, error)
+	Upsert(bean interface{}) (int64, error)
 	UpsertById(id interface{}, bean interface{}) (int64, error)
-	UpsertMany(wheres []interface{}, beans []interface{}) (int64, error)
+	UpsertMany(beans []interface{}) (int64, error)
 
 	Delete(bean interface{}) (int64, error)
 	DeleteById(id interface{}, bean interface{}) (int64, error)
@@ -36,7 +36,7 @@ type Dao interface {
 
 	Query(rowsSlicePtr interface{}, sql string, Args ...interface{}) error
 	CallProcedure(procName string, args ...interface{}) ([][]map[string]interface{}, error)
-	Native() DBInterface
+	Native() DBConn
 	Migrations(tables []interface{}) error
 }
 
@@ -55,12 +55,12 @@ type BaseDao interface {
 }
 
 type OrmBaseDao struct {
-	conn    DBInterface
+	conn    DBConn
 	tx      *gorm.DB
 	inTrans bool
 }
 
-func NewBaseDao(conn DBInterface) BaseDao {
+func NewBaseDao(conn DBConn) BaseDao {
 	return &OrmBaseDao{
 		conn:    conn,
 		tx:      nil,
@@ -179,7 +179,7 @@ func (m *OrmBaseDao) UpdateById(id interface{}, bean interface{}) (int64, error)
 }
 
 // Upsert 如果数据存在则更新，不存在则插入
-func (m *OrmBaseDao) Upsert(where interface{}, bean interface{}) (int64, error) {
+func (m *OrmBaseDao) Upsert(bean interface{}) (int64, error) {
 	db := m.DB()
 
 	// 使用 GORM 的 Clauses 实现原子性 Upsert
@@ -210,15 +210,11 @@ func (m *OrmBaseDao) UpsertById(id interface{}, bean interface{}) (int64, error)
 }
 
 // UpsertMany 批量Upsert操作
-func (m *OrmBaseDao) UpsertMany(wheres []interface{}, beans []interface{}) (int64, error) {
-	if len(wheres) != len(beans) {
-		return 0, fmt.Errorf("wheres 和 beans 长度不一致")
-	}
-
+func (m *OrmBaseDao) UpsertMany(beans []interface{}) (int64, error) {
 	var totalAffected int64 = 0
 
-	for i, bean := range beans {
-		affected, err := m.Upsert(wheres[i], bean)
+	for _, bean := range beans {
+		affected, err := m.Upsert(bean)
 		if err != nil {
 			return totalAffected, err
 		}
@@ -349,7 +345,7 @@ func (m *OrmBaseDao) FindAndCount(rowsSlicePtr interface{},
 	return count, err
 }
 
-func (m *OrmBaseDao) Native() DBInterface {
+func (m *OrmBaseDao) Native() DBConn {
 	return m.conn
 }
 

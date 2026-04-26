@@ -49,11 +49,29 @@ type localCounter struct {
 
 // NewPeriodLimiter 创建滑动窗口限流器
 func NewPeriodLimiter(period, quota int, prefix string) *PeriodLimiter {
-	return &PeriodLimiter{
+	pl := &PeriodLimiter{
 		period:     period,
 		quota:      quota,
 		prefix:     prefix,
 		localCount: make(map[string]*localCounter),
+	}
+	go pl.cleanupLoop()
+	return pl
+}
+
+// cleanupLoop 定期清理过期的本地计数器，防止 localCount map 无限增长
+func (pl *PeriodLimiter) cleanupLoop() {
+	ticker := time.NewTicker(time.Duration(pl.period) * time.Second * 2)
+	defer ticker.Stop()
+	for range ticker.C {
+		now := time.Now()
+		pl.localMu.Lock()
+		for k, v := range pl.localCount {
+			if now.After(v.expireAt) {
+				delete(pl.localCount, k)
+			}
+		}
+		pl.localMu.Unlock()
 	}
 }
 

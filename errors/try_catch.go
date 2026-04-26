@@ -7,6 +7,8 @@ func TryFunc(fun func(), catch func(err interface{}), finally func()) {
 		if r := recover(); r != nil {
 			if catch != nil {
 				catch(r)
+			} else {
+				panic(r)
 			}
 		}
 

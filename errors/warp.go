@@ -54,3 +54,7 @@ func (w *wrappedError) Error() string {
 func (w *wrappedError) WrappedErrors() []error {
 	return []error{w.Outer, w.Inner}
 }
+
+func (w *wrappedError) Unwrap() error {
+	return w.Inner
+}

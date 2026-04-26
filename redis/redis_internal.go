@@ -1,6 +1,7 @@
 package redis
 
 import (
+	"fmt"
 	"strings"
 
 	"github.com/redis/go-redis/v9"
@@ -59,11 +60,20 @@ func toRangeZMembers(err error, members []string, zSlice []redis.Z) ([]*ZMember,
 			zMembers = append(zMembers, &member)
 		}
 	}
-	if len(members) > 0 {
+	if len(zSlice) > 0 {
 		for _, m := range zSlice {
+			var memberBytes []byte
+			switch v := m.Member.(type) {
+			case []byte:
+				memberBytes = v
+			case string:
+				memberBytes = []byte(v)
+			default:
+				memberBytes = []byte(fmt.Sprint(v))
+			}
 			member := ZMember{
 				Score:  m.Score,
-				Member: m.Member.([]byte),
+				Member: memberBytes,
 			}
 			zMembers = append(zMembers, &member)
 		}

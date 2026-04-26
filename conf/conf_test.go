@@ -11,6 +11,9 @@ import (
 func resetConfStateForTest() {
 	config = nil
 	vp = nil
+	appName = ""
+	appVer = ""
+	redisKey = ""
 	initErr = nil
 	initOnce = sync.Once{}
 }
@@ -75,8 +78,14 @@ key1 = "prod_value"
 	resetConfStateForTest()
 	Init()
 
-	if got := os.Getenv("APP_NAME"); got != "dev-app" {
-		t.Fatalf("APP_NAME = %s, want dev-app", got)
+	if got := GetAppName(); got != "dev-app" {
+		t.Fatalf("GetAppName() = %s, want dev-app", got)
+	}
+	if got := GetAppVersion(); got != "0.0.1" {
+		t.Fatalf("GetAppVersion() = %s, want 0.0.1", got)
+	}
+	if got := GetRedisKeyPrefix(); got != "dev:key" {
+		t.Fatalf("GetRedisKeyPrefix() = %s, want dev:key", got)
 	}
 
 	loggerBytes := Get("logger")
@@ -95,8 +104,8 @@ key1 = "prod_value"
 	os.Setenv("runConfig", prodPath)
 	Init()
 
-	if got := os.Getenv("APP_NAME"); got != "dev-app" {
-		t.Fatalf("APP_NAME = %s, want dev-app after second Init call", got)
+	if got := GetAppName(); got != "dev-app" {
+		t.Fatalf("GetAppName() = %s, want dev-app after second Init call", got)
 	}
 }
 
@@ -130,7 +139,7 @@ redis_key_prefix = "dev:key"
 	resetConfStateForTest()
 	Init()
 
-	if got := os.Getenv("APP_NAME"); got != "env-dev-app" {
-		t.Fatalf("APP_NAME = %s, want env-dev-app", got)
+	if got := GetAppName(); got != "env-dev-app" {
+		t.Fatalf("GetAppName() = %s, want env-dev-app", got)
 	}
 }

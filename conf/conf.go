@@ -13,6 +13,9 @@ import (
 var (
 	config   map[string]interface{}
 	vp       *viper.Viper
+	appName  string
+	appVer   string
+	redisKey string
 	mu       sync.RWMutex
 	initOnce sync.Once
 	initErr  error
@@ -66,26 +69,25 @@ func Init() {
 			initErr = errors.New("app name is missing in the global configuration")
 			return
 		}
-		appName := v.GetString("global.app_name")
+		appNameValue := v.GetString("global.app_name")
 
 		if !v.IsSet("global.app_version") {
 			initErr = errors.New("app version is missing in the global configuration")
 			return
 		}
-		appVersion := v.GetString("global.app_version")
+		appVersionValue := v.GetString("global.app_version")
 
 		if !v.IsSet("global.redis_key_prefix") {
 			initErr = errors.New("redis key prefix is missing in the global configuration")
 			return
 		}
-		redisKeyPrefix := v.GetString("global.redis_key_prefix")
+		redisKeyPrefixValue := v.GetString("global.redis_key_prefix")
 
 		vp = v
 		config = v.AllSettings()
-
-		os.Setenv("APP_NAME", appName)
-		os.Setenv("APP_VERSION", appVersion)
-		os.Setenv("REDIS_KEY_PREFIX", redisKeyPrefix)
+		appName = appNameValue
+		appVer = appVersionValue
+		redisKey = redisKeyPrefixValue
 	})
 
 	if initErr != nil {
@@ -93,21 +95,52 @@ func Init() {
 	}
 }
 
-func Get(key string) []byte {
+func GetAppName() string {
 	mu.RLock()
-	cfg := config
-	v := vp
+	name := appName
 	mu.RUnlock()
-
-	if cfg == nil {
-		Init()
-		mu.RLock()
-		cfg = config
-		v = vp
-		mu.RUnlock()
+	if name != "" {
+		return name
 	}
+	Init()
+	mu.RLock()
+	defer mu.RUnlock()
+	return appName
+}
 
-	if value, exists := cfg[key]; exists {
+func GetAppVersion() string {
+	mu.RLock()
+	version := appVer
+	mu.RUnlock()
+	if version != "" {
+		return version
+	}
+	Init()
+	mu.RLock()
+	defer mu.RUnlock()
+	return appVer
+}
+
+func GetRedisKeyPrefix() string {
+	mu.RLock()
+	prefix := redisKey
+	mu.RUnlock()
+	if prefix != "" {
+		return prefix
+	}
+	Init()
+	mu.RLock()
+	defer mu.RUnlock()
+	return redisKey
+}
+
+func Get(key string) []byte {
+	Init()
+
+	mu.RLock()
+	defer mu.RUnlock()
+
+	if value, exists := config[key]; exists {
 		if strValue, ok := value.(string); ok {
 			return []byte(strValue)
 		}
@@ -118,8 +151,8 @@ func Get(key string) []byte {
 		return bytes
 	}
 
-	if v != nil && v.IsSet(key) {
-		value := v.Get(key)
+	if vp != nil && vp.IsSet(key) {
+		value := vp.Get(key)
 		if strValue, ok := value.(string); ok {
 			return []byte(strValue)
 		}

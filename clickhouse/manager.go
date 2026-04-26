@@ -1,6 +1,7 @@
 package clickhouse
 
 import (
+	"context"
 	"database/sql"
 	"fmt"
 	"sync"
@@ -56,6 +57,11 @@ func newClickHouseClient(cfg *Config) (ClickHouseCli, error) {
 	db.SetMaxOpenConns(cfg.MaxConn)
 	db.SetMaxIdleConns(cfg.MaxIdle)
 	db.SetConnMaxLifetime(time.Hour)
+
+	if err := db.PingContext(context.Background()); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("clickhouse ping failed: %w", err)
+	}
 
 	return &clickhouseClient{db: db}, nil
 }

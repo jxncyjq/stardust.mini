@@ -17,6 +17,7 @@ type ClientManager struct {
 	broadcast  chan []byte
 	stopChan   chan struct{}
 	startChan  chan struct{}
+	stopOnce   sync.Once
 	logger     *zap.Logger
 }
 
@@ -83,24 +84,57 @@ func (m *ClientManager) Start() {
 			m.mu.RUnlock()
 		case <-m.stopChan:
 			m.logger.Debug("Stopping client manager")
-			// 关闭所有连接
-			m.Stop()
+			m.shutdownClients()
 			m.logger.Info("Client manager stopped")
 			return
 		}
 	}
 }
 
+func (m *ClientManager) shutdownClients() {
+	m.mu.Lock()
+	clients := make([]IClient, 0, len(m.clients))
+	for sessionID, client := range m.clients {
+		clients = append(clients, client)
+		delete(m.clients, sessionID)
+		delete(m.userIdMap, client.GetUserID())
+	}
+	m.mu.Unlock()
+
+	for _, client := range clients {
+		m.logger.Debug("Shutting down client", zap.String("sessionId", client.GetSessionID()), zap.String("userId", client.GetUserID()))
+		if err := client.Close(); err != nil {
+			m.logger.Warn("Failed to close client", zap.String("sessionId", client.GetSessionID()), logs.ErrorInfo(err))
+		}
+	}
+	m.logger.Info("All clients have been kicked")
+}
+
 func (m *ClientManager) RegisterClient(client IClient) {
-	m.register <- client
+	select {
+	case <-m.stopChan:
+		m.logger.Debug("RegisterClient ignored: manager stopped", zap.String("sessionId", client.GetSessionID()), zap.String("userId", client.GetUserID()))
+		return
+	case m.register <- client:
+	}
 }
 
 func (m *ClientManager) UnregisterClient(client IClient) {
-	m.unregister <- client
+	select {
+	case <-m.stopChan:
+		m.logger.Debug("UnregisterClient ignored: manager stopped", zap.String("sessionId", client.GetSessionID()), zap.String("userId", client.GetUserID()))
+		return
+	case m.unregister <- client:
+	}
 }
 
 func (m *ClientManager) BroadcastMessage(message []byte) {
-	m.broadcast <- message
+	select {
+	case <-m.stopChan:
+		m.logger.Debug("BroadcastMessage ignored: manager stopped")
+		return
+	case m.broadcast <- message:
+	}
 }
 
 func (m *ClientManager) ClientCount() int {
@@ -141,14 +175,8 @@ func (m *ClientManager) KickClientBySessionId(sessionId string) {
 }
 
 func (m *ClientManager) Stop() {
-	m.mu.Lock()
-	for _, client := range m.clients {
-		m.logger.Debug("Shutting down client", zap.String("sessionId", client.GetSessionID()), zap.String("userId", client.GetUserID()))
-		client.Close()
-		delete(m.clients, client.GetSessionID())
-		delete(m.userIdMap, client.GetUserID())
-	}
-	m.mu.Unlock()
-	m.logger.Info("All clients have been kicked")
-	m.stopChan <- struct{}{}
+	m.stopOnce.Do(func() {
+		close(m.stopChan)
+	})
+	m.shutdownClients()
 }

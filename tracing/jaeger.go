@@ -3,7 +3,6 @@ package tracing
 import (
 	"context"
 	"fmt"
-	"io"
 
 	"github.com/jxncyjq/stardust.mini/utils"
 	"go.opentelemetry.io/otel"
@@ -157,8 +156,5 @@ func toString(v interface{}) string {
 	if s, ok := v.(string); ok {
 		return s
 	}
-	if c, ok := v.(io.Closer); ok {
-		_ = c
-	}
-	return ""
+	return fmt.Sprintf("%v", v)
 }

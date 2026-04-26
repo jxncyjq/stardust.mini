@@ -4,9 +4,9 @@ import (
 	"context"
 	"fmt"
 	"net/http"
-	"os"
 
 	"github.com/gin-gonic/gin"
+	"github.com/jxncyjq/stardust.mini/conf"
 	"github.com/jxncyjq/stardust.mini/jwt"
 	"github.com/jxncyjq/stardust.mini/redis"
 	"github.com/jxncyjq/stardust.mini/utils"
@@ -20,8 +20,8 @@ func Access() gin.HandlerFunc {
 		jwtStr := c.GetHeader("jwt")
 
 		if jwtStr != "" {
-			appName := os.Getenv("APP_NAME")
-			appVersion := os.Getenv("APP_VERSION")
+			appName := conf.GetAppName()
+			appVersion := conf.GetAppVersion()
 			secret := fmt.Sprintf("%s-%s", appName, appVersion)
 			jwtObj, ok := jwt.JWTDecrypt(jwtStr, secret)
 			if !ok || jwtObj == nil || jwtObj["token"] == nil || jwtObj["id"] == nil {

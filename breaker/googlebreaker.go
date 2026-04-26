@@ -76,14 +76,11 @@ func (rw *rollingWindow) sum() (accepts, total int64) {
 // 丢弃概率: max(0, (requests - K * accepts) / (requests + 1))
 type GoogleBreaker struct {
 	window *rollingWindow
-	rand   *rand.Rand
-	mu     sync.Mutex
 }
 
 func NewGoogleBreaker() Breaker {
 	return &GoogleBreaker{
 		window: newRollingWindow(buckets),
-		rand:   rand.New(rand.NewSource(time.Now().UnixNano())),
 	}
 }
 
@@ -125,9 +122,7 @@ func (gb *GoogleBreaker) accept() error {
 		return nil
 	}
 
-	gb.mu.Lock()
-	shouldDrop := gb.rand.Float64() < dropRatio
-	gb.mu.Unlock()
+	shouldDrop := rand.Float64() < dropRatio
 
 	if shouldDrop {
 		return ErrServiceUnavailable

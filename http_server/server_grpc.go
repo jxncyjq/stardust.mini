@@ -3,6 +3,7 @@ package httpServer
 import (
 	"encoding/json"
 	"net"
+	"strconv"
 	"time"
 
 	"github.com/jxncyjq/stardust.mini/http_server/interceptor"
@@ -119,17 +120,19 @@ func (s *GrpcServer) Address() string {
 
 func parseAddr(addr string) (string, int) {
 	host, portStr, _ := net.SplitHostPort(addr)
-	port := 0
-	for _, c := range portStr {
-		port = port*10 + int(c-'0')
-	}
+	port, _ := strconv.Atoi(portStr)
 	return host, port
 }
 
-// getLoggerSafe 安全获取 logger，未初始化时返回 nil
+// getLoggerSafe 安全获取 logger，未初始化时返回 nop logger
 func getLoggerSafe(module string) *zap.Logger {
-	defer func() {
-		recover()
+	var l *zap.Logger
+	func() {
+		defer func() { recover() }()
+		l = logs.GetLogger(module)
 	}()
-	return logs.GetLogger(module)
+	if l == nil {
+		return zap.NewNop()
+	}
+	return l
 }

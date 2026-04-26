@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/signal"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -23,13 +24,15 @@ import (
 )
 
 type HttpServer struct {
-	ctx    context.Context
-	addr   string
-	path   string
-	logger *zap.Logger
-	engine *gin.Engine
-	server *http.Server
-	group  map[string]*StarDustGroup
+	ctx      context.Context
+	cancel   context.CancelFunc
+	stopOnce sync.Once
+	addr     string
+	path     string
+	logger   *zap.Logger
+	engine   *gin.Engine
+	server   *http.Server
+	group    map[string]*StarDustGroup
 }
 
 func NewHttpServer(configByte []byte) (*HttpServer, error) {
@@ -65,8 +68,10 @@ func NewHttpServer(configByte []byte) (*HttpServer, error) {
 		return nil, errors.New("the http.path must start with a /")
 	}
 
+	ctx, cancel := context.WithCancel(context.Background())
 	srv := &HttpServer{
-		ctx:    context.Background(),
+		ctx:    ctx,
+		cancel: cancel,
 		logger: logs.GetLogger("httpServer"),
 		engine: engine,
 		group:  make(map[string]*StarDustGroup),
@@ -102,21 +107,26 @@ func (m *HttpServer) Startup() error {
 			m.logger.Error("http server error:", zap.Error(err))
 		}
 	}()
-	go func() {
-		<-m.ctx.Done()
-		m.Stop()
-	}()
 	return nil
 }
 
 func (m *HttpServer) Stop() {
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-	if err := m.server.Shutdown(ctx); err != nil {
-		m.logger.Error("shutdown http server:", zap.Error(err))
-		return
-	}
-	m.logger.Info("http server shutdown gracefully")
+	m.stopOnce.Do(func() {
+		if m.cancel != nil {
+			m.cancel()
+		}
+		if m.server == nil {
+			return
+		}
+
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		if err := m.server.Shutdown(ctx); err != nil {
+			m.logger.Error("shutdown http server:", zap.Error(err))
+			return
+		}
+		m.logger.Info("http server shutdown gracefully")
+	})
 }
 
 // Handle registers a new route with the HTTP server.
@@ -139,8 +149,7 @@ func (m *HttpServer) AddGroup(path string, middleware ...gin.HandlerFunc) {
 func (m *HttpServer) Get(path string, group string, handler IHandler) {
 	if group != "" {
 		if _, exists := m.group[group]; !exists {
-			m.logger.Error("group not found", logs.String("group", group))
-			return
+			panic(fmt.Sprintf("http group %q not found, call AddGroup first", group))
 		}
 		m.group[group].Group.GET(fmt.Sprintf("/%s", path), handler.GetFunc())
 		m.logger.Info("http handler registered to group:", logs.String("path", path), logs.String("prefix", m.group[group].Prefix))
@@ -152,8 +161,7 @@ func (m *HttpServer) Get(path string, group string, handler IHandler) {
 func (m *HttpServer) Post(path string, group string, handler IHandler) {
 	if group != "" {
 		if _, exists := m.group[group]; !exists {
-			m.logger.Error("group not found", zap.String("group", group))
-			return
+			panic(fmt.Sprintf("http group %q not found, call AddGroup first", group))
 		}
 		m.group[group].Group.POST(fmt.Sprintf("/%s", path), handler.GetFunc())
 		m.logger.Info("http handler registered to group:", logs.String("path", path), logs.String("prefix", m.group[group].Prefix))
@@ -165,8 +173,7 @@ func (m *HttpServer) Post(path string, group string, handler IHandler) {
 func (m *HttpServer) Put(path string, group string, handler IHandler) {
 	if group != "" {
 		if _, exists := m.group[group]; !exists {
-			m.logger.Error("group not found", zap.String("group", group))
-			return
+			panic(fmt.Sprintf("http group %q not found, call AddGroup first", group))
 		}
 		m.group[group].Group.PUT(fmt.Sprintf("/%s", path), handler.GetFunc())
 		m.logger.Info("http handler registered to group:", logs.String("path", path), logs.String("prefix", m.group[group].Prefix))
@@ -211,22 +218,14 @@ func (m *HttpServer) WaitForShutdown() error {
 
 	// 监听指定的信号量：SIGINT (Ctrl+C), SIGTERM
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
+	defer signal.Stop(quit)
 
 	// 等待信号
 	sig := <-quit
 	m.logger.Info("received shutdown signal:", zap.String("signal", sig.String()))
 
-	// 创建带超时的上下文用于优雅关闭
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-
 	m.logger.Info("shutting down server...")
-
-	// 执行优雅关闭
-	if err := m.server.Shutdown(ctx); err != nil {
-		m.logger.Error("server forced to shutdown:", zap.Error(err))
-		return err
-	}
+	m.Stop()
 
 	m.logger.Info("server exited gracefully")
 	return nil

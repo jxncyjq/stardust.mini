@@ -149,7 +149,15 @@ func (r *EtcdRegister) Register(ctx context.Context, info *ServiceInfo) error {
 	}
 
 	go func() {
-		for range ch {
+		for {
+			select {
+			case _, ok := <-ch:
+				if !ok {
+					return
+				}
+			case <-ctx.Done():
+				return
+			}
 		}
 	}()
 

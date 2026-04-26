@@ -79,8 +79,16 @@ func (m *NatsConnManager) CloseAll() error {
 
 func (m *NatsConnManager) StartAll() {
 	m.mu.RLock()
-	defer m.mu.RUnlock()
+	clients := make([]*NatsConnection, 0, len(m.clients))
 	for _, c := range m.clients {
-		c.Start()
+		clients = append(clients, c)
+	}
+	m.mu.RUnlock()
+
+	for _, c := range clients {
+		if c == nil {
+			continue
+		}
+		go c.Start()
 	}
 }
