@@ -64,12 +64,20 @@ func Test(t *testing.T) {
 	}).Do()
 
 	// 发生panic，尝试捕获错误，但是没有捕获得到，则异常会被向上抛出，即仍然会panic
-	Try(func() {
-		panic(errors.New("test"))
-	}).Catch(errFoo, func(err error) {
-		fmt.Println("catch success")
-	}).Finally(func() {
-		fmt.Println("not catch finally")
-	}).Do()
+	func() {
+		defer func() {
+			if r := recover(); r == nil {
+				t.Fatal("Try(...).Do() should panic when no catch handler matches")
+			}
+		}()
+
+		Try(func() {
+			panic(errors.New("test"))
+		}).Catch(errFoo, func(err error) {
+			fmt.Println("catch success")
+		}).Finally(func() {
+			fmt.Println("not catch finally")
+		}).Do()
+	}()
 
 }
