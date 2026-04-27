@@ -5,6 +5,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/jxncyjq/stardust.mini/errors"
+	"github.com/jxncyjq/stardust.mini/i18n"
 )
 
 // 定义了 HTTP 请求的通用结构和一个辅助函数 BindAndValidate 来统一处理请求绑定和验证。
@@ -37,24 +38,25 @@ type PageResp struct {
 
 func Response(c *gin.Context, err *errors.StackError, data any) {
 	if err == nil {
+		msg := i18n.MessageByCode(c.Request.Context(), 0, "操作成功")
 		if data != nil {
 			c.JSON(http.StatusOK, BaseResponse{
 				ErrCode: 0,
-				ErrMsg:  "操作成功!",
+				ErrMsg:  msg,
 				Data:    data,
 			})
 			return
 		}
 		c.JSON(http.StatusOK, BaseResponse{
 			ErrCode: 0,
-			ErrMsg:  "操作成功!",
+			ErrMsg:  msg,
 		})
 		return
 	}
 
 	c.JSON(http.StatusOK, BaseResponse{
 		ErrCode: err.Code(),
-		ErrMsg:  err.Msg(),
+		ErrMsg:  i18n.MessageByCode(c.Request.Context(), err.Code(), err.Msg()),
 		Data:    nil,
 	})
 }
