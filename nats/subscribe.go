@@ -77,16 +77,35 @@ func (s *NatsConnection) AddConsumer(streamName, durableName string, subjects ..
 	if !s.useStream {
 		return nats.ErrNoStreamResponse
 	}
+	if s.js == nil {
+		return nats.ErrNoStreamResponse
+	}
 
 	// 首先检查 Consumer 是否已存在
 	consumer, err := s.js.ConsumerInfo(streamName, durableName)
 	if err == nil && consumer != nil {
-		// Consumer 已存在
-		s.logger.Info("Consumer already exists",
+		if consumerFilterMatches(consumer.Config, subjects) {
+			// Consumer 已存在
+			s.logger.Info("Consumer already exists",
+				zap.String("stream", streamName),
+				zap.String("durable", durableName),
+				zap.Any("subject", subjects))
+			return nil
+		}
+
+		s.logger.Warn("Consumer filter changed, recreating",
 			zap.String("stream", streamName),
 			zap.String("durable", durableName),
-			zap.Any("subject", subjects))
-		return nil
+			zap.String("current_filter_subject", consumer.Config.FilterSubject),
+			zap.Strings("current_filter_subjects", consumer.Config.FilterSubjects),
+			zap.Any("expected_subjects", subjects))
+		if delErr := s.js.DeleteConsumer(streamName, durableName); delErr != nil {
+			s.logger.Error("Failed to delete stale consumer",
+				zap.String("stream", streamName),
+				zap.String("durable", durableName),
+				zap.Error(delErr))
+			return delErr
+		}
 	}
 
 	if err != nil && !strings.Contains(err.Error(), "consumer not found") {
@@ -146,13 +165,9 @@ func (s *NatsConnection) GetNativeConn() *nats.Conn {
 
 func (s *NatsConnection) Start() {
 	if s.useStream {
-		// 检查并仅在不存在时添加 Stream
-		stream, err := s.js.StreamInfo(s.config.StreamName)
-		if err != nil && stream == nil {
-			if err := s.AddStream(s.config.StreamName, s.config.Subject); err != nil {
-				s.logger.Error("create stream error", zap.Error(err))
-				panic(err)
-			}
+		if err := s.EnsureStream(); err != nil {
+			s.logger.Error("ensure stream error", zap.Error(err))
+			panic(err)
 		}
 	}
 
@@ -257,6 +272,10 @@ func (s *NatsConnection) StartSubscription(subject, durableName string, handler 
 	s.handlersMu.Unlock()
 
 	if s.useStream {
+		if err := s.EnsureStream(); err != nil {
+			s.logger.Error("EnsureStream error", logs.ErrorInfo(err))
+			return err
+		}
 		// JetStream 场景
 		if err := s.AddConsumer(s.config.StreamName, durableName, subject); err != nil {
 			s.logger.Error("AddConsumer error", logs.ErrorInfo(err))
@@ -290,6 +309,31 @@ func (s *NatsConnection) StartSubscription(subject, durableName string, handler 
 				if err != nil {
 					if errors.Is(err, nats.ErrTimeout) {
 						time.Sleep(50 * time.Millisecond)
+						continue
+					}
+					if errors.Is(err, nats.ErrNoResponders) || strings.Contains(strings.ToLower(err.Error()), "no responders") {
+						s.logger.Warn("Fetch no responders, trying self-heal",
+							logs.String("subject", subject),
+							logs.String("durable", durableName),
+							logs.ErrorInfo(err))
+						healErr := s.EnsureStream()
+						if healErr == nil {
+							healErr = s.AddConsumer(s.config.StreamName, durableName, subject)
+						}
+						if healErr != nil {
+							s.logger.Error("Self-heal failed", logs.ErrorInfo(healErr), logs.String("subject", subject), logs.String("durable", durableName))
+							time.Sleep(1 * time.Second)
+							continue
+						}
+						newSub, subErr := s.js.PullSubscribe(subject, durableName, nats.BindStream(s.config.StreamName))
+						if subErr != nil {
+							s.logger.Error("Self-heal PullSubscribe failed", logs.ErrorInfo(subErr), logs.String("subject", subject), logs.String("durable", durableName))
+							time.Sleep(1 * time.Second)
+							continue
+						}
+						s.subject = append(s.subject, newSub)
+						sub = newSub
+						s.logger.Info("Self-heal succeeded, pull subscription rebuilt", logs.String("subject", subject), logs.String("durable", durableName))
 						continue
 					}
 					s.logger.Error("Fetch error, retrying", logs.ErrorInfo(err), logs.String("subject", subject))
@@ -352,6 +396,28 @@ func (s *NatsConnection) StartSubscription(subject, durableName string, handler 
 		}()
 		return nil
 	}
+}
+
+func consumerFilterMatches(cfg nats.ConsumerConfig, subjects []string) bool {
+	if len(subjects) == 0 {
+		return cfg.FilterSubject == "" && len(cfg.FilterSubjects) == 0
+	}
+	if len(subjects) == 1 {
+		return cfg.FilterSubject == subjects[0] || (len(cfg.FilterSubjects) == 1 && cfg.FilterSubjects[0] == subjects[0])
+	}
+	if len(cfg.FilterSubjects) != len(subjects) {
+		return false
+	}
+	set := make(map[string]struct{}, len(cfg.FilterSubjects))
+	for _, sub := range cfg.FilterSubjects {
+		set[sub] = struct{}{}
+	}
+	for _, sub := range subjects {
+		if _, ok := set[sub]; !ok {
+			return false
+		}
+	}
+	return true
 }
 
 func (s *NatsConnection) StopSubscription(subject string) error {

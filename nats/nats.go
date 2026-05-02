@@ -3,6 +3,7 @@ package nats
 import (
 	"context"
 	"errors"
+	"sort"
 	"sync"
 	"time"
 
@@ -112,6 +113,9 @@ func (s *NatsConnection) EnsureStream() error {
 	if !s.useStream {
 		return nil // 如果未启用 JetStream，则无需创建 Stream
 	}
+	if s.js == nil {
+		return nats.ErrNoStreamResponse
+	}
 
 	// 检查 Stream 是否存在
 	stream, err := s.js.StreamInfo(s.config.StreamName)
@@ -128,6 +132,56 @@ func (s *NatsConnection) EnsureStream() error {
 			return err
 		}
 		s.logger.Info("Stream created successfully", zap.String("stream", s.config.StreamName))
+		return nil
 	}
+	if err != nil {
+		s.logger.Error("Failed to inspect stream", zap.Error(err), zap.String("stream", s.config.StreamName))
+		return err
+	}
+
+	if stream == nil {
+		return nil
+	}
+
+	mergedSubjects, changed := mergeSubjects(stream.Config.Subjects, s.config.Subject)
+	if !changed {
+		return nil
+	}
+
+	updateCfg := stream.Config
+	updateCfg.Subjects = mergedSubjects
+	if _, err = s.js.UpdateStream(&updateCfg); err != nil {
+		s.logger.Error("Failed to update stream subjects",
+			zap.String("stream", s.config.StreamName),
+			zap.Strings("subjects", mergedSubjects),
+			zap.Error(err))
+		return err
+	}
+	s.logger.Info("Stream subjects reconciled",
+		zap.String("stream", s.config.StreamName),
+		zap.Strings("subjects", mergedSubjects))
 	return nil
+}
+
+func mergeSubjects(existing []string, desired []string) ([]string, bool) {
+	set := make(map[string]struct{}, len(existing)+len(desired))
+	for _, subject := range existing {
+		if subject == "" {
+			continue
+		}
+		set[subject] = struct{}{}
+	}
+	before := len(set)
+	for _, subject := range desired {
+		if subject == "" {
+			continue
+		}
+		set[subject] = struct{}{}
+	}
+	merged := make([]string, 0, len(set))
+	for subject := range set {
+		merged = append(merged, subject)
+	}
+	sort.Strings(merged)
+	return merged, len(set) != before
 }
