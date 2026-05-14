@@ -422,3 +422,69 @@ func TestApisixGateway_AuthFailure(t *testing.T) {
 		t.Error("expected auth error")
 	}
 }
+
+func TestApisixGateway_DeregisterBehaviorByMode(t *testing.T) {
+	gw := &ApisixGateway{config: ApisixConfig{RegisterMode: "single"}}
+	if !gw.shouldDeregisterOnShutdown() {
+		t.Fatal("single mode should default to deregister on shutdown")
+	}
+
+	gwLeader := &ApisixGateway{config: ApisixConfig{RegisterMode: "leader"}}
+	if gwLeader.shouldDeregisterOnShutdown() {
+		t.Fatal("leader mode should default to keep routes on shutdown")
+	}
+
+	vTrue := true
+	gwOverrideTrue := &ApisixGateway{config: ApisixConfig{RegisterMode: "leader", DeregisterOnShutdown: &vTrue}}
+	if !gwOverrideTrue.shouldDeregisterOnShutdown() {
+		t.Fatal("explicit true should override leader default")
+	}
+
+	vFalse := false
+	gwOverrideFalse := &ApisixGateway{config: ApisixConfig{RegisterMode: "single", DeregisterOnShutdown: &vFalse}}
+	if gwOverrideFalse.shouldDeregisterOnShutdown() {
+		t.Fatal("explicit false should override single default")
+	}
+}
+
+func TestApisixGateway_OffModeSkipsRegisterAndDeregister(t *testing.T) {
+	var called bool
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		called = true
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	apisixBytes, err := json.Marshal(&ApisixConfig{
+		AdminURL:     server.URL,
+		APIKey:       "test-key",
+		RegisterMode: "off",
+		Timeout:      5,
+	})
+	if err != nil {
+		t.Fatalf("json.Marshal(apisix off config) error = %v", err)
+	}
+
+	gw, err := NewApisixGateway(apisixBytes)
+	if err != nil {
+		t.Fatalf("NewApisixGateway failed: %v", err)
+	}
+	defer gw.Close()
+
+	svc := &GatewayService{
+		ID:       "test-off",
+		Name:     "test-off",
+		Upstream: &GatewayUpstream{Type: "roundrobin", Nodes: map[string]int{"127.0.0.1:8080": 1}},
+		Routes:   []*GatewayRoute{{Name: "off", URI: "/off", Methods: []string{"GET"}}},
+	}
+
+	if err := gw.RegisterService(context.Background(), svc); err != nil {
+		t.Fatalf("RegisterService(off) failed: %v", err)
+	}
+	if err := gw.DeregisterService(context.Background(), svc.ID); err != nil {
+		t.Fatalf("DeregisterService(off) failed: %v", err)
+	}
+	if called {
+		t.Fatal("off mode should not call APISIX Admin API")
+	}
+}

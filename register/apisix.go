@@ -20,6 +20,23 @@ type ApisixConfig struct {
 	Timeout          int    `json:"timeout" toml:"timeout"`                       // 请求超时(秒), 默认 5
 	UpstreamAddr     string `json:"upstream_addr" toml:"upstream_addr"`           // HTTP 上游地址, e.g. "host.docker.internal:8080"
 	GrpcUpstreamAddr string `json:"grpc_upstream_addr" toml:"grpc_upstream_addr"` // gRPC 上游地址, e.g. "host.docker.internal:9103"
+
+	// RegisterMode 支持 off/single/leader。
+	// off: 禁用 APISIX 写操作
+	// single: 单实例直接写 APISIX（默认）
+	// leader: 多实例选主后仅 Leader 写 APISIX
+	RegisterMode string `json:"register_mode" toml:"register_mode"`
+	// DeregisterOnShutdown 控制退出时是否删除 route/upstream。
+	// nil 时按模式取默认值：leader=false，single=true。
+	DeregisterOnShutdown *bool `json:"deregister_on_shutdown" toml:"deregister_on_shutdown"`
+
+	LeaderLeaseName          string `json:"leader_lease_name" toml:"leader_lease_name"`
+	LeaderLeaseNamespace     string `json:"leader_lease_namespace" toml:"leader_lease_namespace"`
+	LeaderIdentity           string `json:"leader_identity" toml:"leader_identity"`
+	LeaseDurationSeconds     int    `json:"lease_duration_seconds" toml:"lease_duration_seconds"`
+	RenewDeadlineSeconds     int    `json:"renew_deadline_seconds" toml:"renew_deadline_seconds"`
+	RetryPeriodSeconds       int    `json:"retry_period_seconds" toml:"retry_period_seconds"`
+	ReconcileIntervalSeconds int    `json:"reconcile_interval_seconds" toml:"reconcile_interval_seconds"`
 }
 
 // ApisixGateway APISIX 网关实现
@@ -28,6 +45,9 @@ type ApisixGateway struct {
 	client   *http.Client
 	mu       sync.Mutex
 	routeIDs map[string][]string // serviceID -> []routeID, 用于注销时清理
+
+	leaderMu          sync.Mutex
+	leaderControllers map[string]*apisixLeaderController // serviceID -> controller
 }
 
 // NewApisixGateway 创建 APISIX 网关实例
@@ -45,9 +65,10 @@ func NewApisixGateway(apisixBytes []byte) (*ApisixGateway, error) {
 		timeout = config.Timeout
 	}
 	return &ApisixGateway{
-		config:   config,
-		client:   &http.Client{Timeout: time.Duration(timeout) * time.Second},
-		routeIDs: make(map[string][]string),
+		config:            config,
+		client:            &http.Client{Timeout: time.Duration(timeout) * time.Second},
+		routeIDs:          make(map[string][]string),
+		leaderControllers: make(map[string]*apisixLeaderController),
 	}, nil
 }
 
@@ -57,6 +78,18 @@ func (a *ApisixGateway) GetApisixConfig() ApisixConfig {
 
 // RegisterService 注册服务到 APISIX (创建 upstream + routes)
 func (a *ApisixGateway) RegisterService(ctx context.Context, svc *GatewayService) error {
+	mode := a.registerMode()
+	switch mode {
+	case "off":
+		return nil
+	case "leader":
+		return a.registerServiceByLeader(ctx, svc)
+	default:
+		return a.registerServiceDirect(ctx, svc)
+	}
+}
+
+func (a *ApisixGateway) registerServiceDirect(ctx context.Context, svc *GatewayService) error {
 	// 1. 创建/更新 upstream
 	upstreamID := svc.ID
 	upstreamBody := toUpstreamBody(svc.Upstream, svc.Name)
@@ -95,6 +128,25 @@ func (a *ApisixGateway) RegisterService(ctx context.Context, svc *GatewayService
 	return nil
 }
 
+func (a *ApisixGateway) registerServiceByLeader(ctx context.Context, svc *GatewayService) error {
+	a.leaderMu.Lock()
+	defer a.leaderMu.Unlock()
+
+	if old := a.leaderControllers[svc.ID]; old != nil {
+		old.Stop()
+	}
+
+	controller, err := newApisixLeaderController(a, svc)
+	if err != nil {
+		return err
+	}
+	if err := controller.Start(ctx); err != nil {
+		return err
+	}
+	a.leaderControllers[svc.ID] = controller
+	return nil
+}
+
 func toUpstreamBody(upstream *GatewayUpstream, name string) map[string]interface{} {
 	body := map[string]interface{}{
 		"type":  upstream.Type,
@@ -109,6 +161,38 @@ func toUpstreamBody(upstream *GatewayUpstream, name string) map[string]interface
 
 // DeregisterService 从 APISIX 注销服务 (删除 routes + upstream)
 func (a *ApisixGateway) DeregisterService(ctx context.Context, serviceID string) error {
+	mode := a.registerMode()
+	if mode == "off" {
+		return nil
+	}
+
+	if mode == "leader" {
+		a.leaderMu.Lock()
+		controller := a.leaderControllers[serviceID]
+		delete(a.leaderControllers, serviceID)
+		a.leaderMu.Unlock()
+		if controller != nil {
+			controller.Stop()
+			if !a.shouldDeregisterOnShutdown() {
+				return nil
+			}
+			if !controller.IsLeader() {
+				return nil
+			}
+		}
+		if !a.shouldDeregisterOnShutdown() {
+			return nil
+		}
+	}
+
+	if mode != "leader" && !a.shouldDeregisterOnShutdown() {
+		return nil
+	}
+
+	return a.deregisterServiceDirect(ctx, serviceID)
+}
+
+func (a *ApisixGateway) deregisterServiceDirect(ctx context.Context, serviceID string) error {
 	a.mu.Lock()
 	routeIDs := a.routeIDs[serviceID]
 	delete(a.routeIDs, serviceID)
@@ -130,8 +214,43 @@ func (a *ApisixGateway) DeregisterService(ctx context.Context, serviceID string)
 
 // Close 关闭
 func (a *ApisixGateway) Close() error {
+	a.leaderMu.Lock()
+	controllers := make([]*apisixLeaderController, 0, len(a.leaderControllers))
+	for _, controller := range a.leaderControllers {
+		controllers = append(controllers, controller)
+	}
+	a.leaderControllers = make(map[string]*apisixLeaderController)
+	a.leaderMu.Unlock()
+
+	for _, controller := range controllers {
+		controller.Stop()
+	}
+
 	a.client.CloseIdleConnections()
 	return nil
+}
+
+func (a *ApisixGateway) registerMode() string {
+	mode := a.config.RegisterMode
+	if mode == "" {
+		return "single"
+	}
+	switch mode {
+	case "off", "single", "leader":
+		return mode
+	default:
+		return "single"
+	}
+}
+
+func (a *ApisixGateway) shouldDeregisterOnShutdown() bool {
+	if a.config.DeregisterOnShutdown != nil {
+		return *a.config.DeregisterOnShutdown
+	}
+	if a.registerMode() == "leader" {
+		return false
+	}
+	return true
 }
 
 // putResource 创建或更新 APISIX 资源 (upstream/route)
