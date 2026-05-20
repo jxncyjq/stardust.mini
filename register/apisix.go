@@ -108,8 +108,9 @@ func (a *ApisixGateway) registerServiceDirect(ctx context.Context, svc *GatewayS
 		routeID := fmt.Sprintf("%s-route-%d", svc.ID, i)
 		routeURI := normalizeRouteURI(route.URI)
 		routeBody := map[string]interface{}{
-			"uri":  routeURI,
-			"name": route.Name,
+			"uri":    routeURI,
+			"name":   route.Name,
+			"status": 1,
 		}
 		if route.Upstream != nil {
 			routeBody["upstream"] = toUpstreamBody(route.Upstream, route.Name)

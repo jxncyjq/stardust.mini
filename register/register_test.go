@@ -377,6 +377,10 @@ func TestApisixGateway_RegisterAndDeregister(t *testing.T) {
 	if routeBody["upstream_id"] != "example-svc" {
 		t.Errorf("expected upstream_id 'example-svc', got %v", routeBody["upstream_id"])
 	}
+	status, ok := routeBody["status"].(float64)
+	if !ok || status != 1 {
+		t.Errorf("expected route status 1, got %v", routeBody["status"])
+	}
 
 	if err := gw.DeregisterService(ctx, "example-svc"); err != nil {
 		t.Fatalf("DeregisterService failed: %v", err)
