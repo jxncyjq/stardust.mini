@@ -128,7 +128,9 @@ func (c *apisixLeaderController) run(ctx context.Context, clientset *kubernetes.
 		Callbacks: leaderelection.LeaderCallbacks{
 			OnStartedLeading: func(leadCtx context.Context) {
 				c.isLeader.Store(true)
-				_ = c.gateway.registerServiceDirect(leadCtx, c.service)
+				if err := c.gateway.registerServiceDirect(leadCtx, c.service); err != nil {
+					fmt.Printf("apisix leader register failed service=%s err=%v\n", c.service.ID, err)
+				}
 
 				ticker := time.NewTicker(c.reconcileInterval)
 				defer ticker.Stop()
@@ -138,7 +140,9 @@ func (c *apisixLeaderController) run(ctx context.Context, clientset *kubernetes.
 					case <-leadCtx.Done():
 						return
 					case <-ticker.C:
-						_ = c.gateway.registerServiceDirect(leadCtx, c.service)
+						if err := c.gateway.registerServiceDirect(leadCtx, c.service); err != nil {
+							fmt.Printf("apisix leader reconcile failed service=%s err=%v\n", c.service.ID, err)
+						}
 					}
 				}
 			},

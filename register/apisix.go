@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 
@@ -102,10 +103,12 @@ func (a *ApisixGateway) registerServiceDirect(ctx context.Context, svc *GatewayS
 	a.routeIDs[svc.ID] = nil // 重置
 	a.mu.Unlock()
 
+	routeErrs := make([]string, 0)
 	for i, route := range svc.Routes {
 		routeID := fmt.Sprintf("%s-route-%d", svc.ID, i)
+		routeURI := normalizeRouteURI(route.URI)
 		routeBody := map[string]interface{}{
-			"uri":  route.URI,
+			"uri":  routeURI,
 			"name": route.Name,
 		}
 		if route.Upstream != nil {
@@ -117,7 +120,8 @@ func (a *ApisixGateway) registerServiceDirect(ctx context.Context, svc *GatewayS
 			routeBody["methods"] = route.Methods
 		}
 		if err := a.putResource(ctx, "routes", routeID, routeBody); err != nil {
-			return fmt.Errorf("create route %s failed: %w", routeID, err)
+			routeErrs = append(routeErrs, fmt.Sprintf("%s: %v", routeID, err))
+			continue
 		}
 
 		a.mu.Lock()
@@ -125,7 +129,18 @@ func (a *ApisixGateway) registerServiceDirect(ctx context.Context, svc *GatewayS
 		a.mu.Unlock()
 	}
 
+	if len(routeErrs) > 0 {
+		return fmt.Errorf("create routes partial failed for %s: %s", svc.ID, strings.Join(routeErrs, "; "))
+	}
+
 	return nil
+}
+
+func normalizeRouteURI(uri string) string {
+	if strings.HasSuffix(uri, "*") && !strings.HasSuffix(uri, "/*") {
+		return strings.TrimSuffix(uri, "*") + "/*"
+	}
+	return uri
 }
 
 func (a *ApisixGateway) registerServiceByLeader(ctx context.Context, svc *GatewayService) error {
