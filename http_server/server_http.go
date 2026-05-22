@@ -208,7 +208,9 @@ func (m *HttpServer) RegisterHealthCheck() {
 	m.engine.GET("/health", func(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"status": "ok"})
 	})
+	m.engine.GET("/metrics", middleware.MetricsHandler())
 	m.logger.Info("health check endpoint registered: /health")
+	m.logger.Info("metrics endpoint registered: /metrics")
 }
 
 // WaitForShutdown 等待关闭信号并执行优雅关闭
