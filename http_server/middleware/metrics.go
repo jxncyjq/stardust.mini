@@ -11,11 +11,11 @@ import (
 )
 
 var (
-	httpRequestsTotal *prometheus.CounterVec // HTTP 请求总量，按 method/path/status 统计
-	httpRequestsByResult *prometheus.CounterVec // HTTP 请求结果总量，按 method/path/result(success|fail) 统计
-	httpRequestsByClass  *prometheus.CounterVec // HTTP 状态码分层总量，按 method/path/status_class(2xx/4xx/5xx...) 统计
+	httpRequestsTotal    *prometheus.CounterVec   // HTTP 请求总量，按 method/path/status 统计
+	httpRequestsByResult *prometheus.CounterVec   // HTTP 请求结果总量，按 method/path/result(success|fail) 统计
+	httpRequestsByClass  *prometheus.CounterVec   // HTTP 状态码分层总量，按 method/path/status_class(2xx/4xx/5xx...) 统计
 	httpRequestDuration  *prometheus.HistogramVec // HTTP 请求耗时直方图（毫秒），按 method/path 统计
-	httpRequestsInFlight prometheus.Gauge // 当前正在处理中的 HTTP 请求数
+	httpRequestsInFlight prometheus.Gauge         // 当前正在处理中的 HTTP 请求数
 	metricsOnce          sync.Once
 )
 
