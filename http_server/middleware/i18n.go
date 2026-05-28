@@ -12,7 +12,7 @@ const langContextKey = "lang"
 
 // I18nMiddleware 从 Accept-Language/X-Lang/query 参数提取语言
 // 优先级：X-Lang > Accept-Language > query lang > 默认 zh-CN
-// 支持的语言：zh-CN, en-US
+// 支持的语言：zh-CN, zh-TW, en-US, ja-JP, ru-RU, de-DE, fr-FR, pt-BR, ko-KR, it-IT, es-MX, vi-VN
 func I18nMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		lang := c.GetHeader("X-Lang")
@@ -40,7 +40,7 @@ func I18nMiddleware() gin.HandlerFunc {
 		}
 
 		supported := false
-		for _, item := range []string{"zh-CN", "en-US"} {
+		for _, item := range []string{"zh-CN", "zh-TW", "en-US", "ja-JP", "ru-RU", "de-DE", "fr-FR", "pt-BR", "ko-KR", "it-IT", "es-MX", "vi-VN"} {
 			if lang == item {
 				supported = true
 				break
