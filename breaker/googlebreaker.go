@@ -8,20 +8,38 @@ import (
 )
 
 const (
-	// k 是 Google SRE 公式中的倍率，K 越大越宽容
-	k          = 1.5
-	buckets    = 40
-	bucketTime = time.Millisecond * 250
-	minReqs    = 100
+	defaultK            = 1.5
+	defaultBuckets      = 40
+	defaultBucketTimeMs = 250
+	defaultMinReqs      = 100
 )
+
+// GoogleBreakerConfig 熔断器配置。
+type GoogleBreakerConfig struct {
+	K            float64
+	Buckets      int
+	BucketTimeMs int
+	MinReqs      int64
+}
+
+// DefaultGoogleBreakerConfig 返回默认熔断器配置。
+func DefaultGoogleBreakerConfig() GoogleBreakerConfig {
+	return GoogleBreakerConfig{
+		K:            defaultK,
+		Buckets:      defaultBuckets,
+		BucketTimeMs: defaultBucketTimeMs,
+		MinReqs:      defaultMinReqs,
+	}
+}
 
 // rollingWindow 滑动窗口
 type rollingWindow struct {
-	mu       sync.Mutex
-	buckets  []bucket
-	size     int
-	offset   int
-	lastTime time.Time
+	mu         sync.Mutex
+	buckets    []bucket
+	size       int
+	bucketTime time.Duration
+	offset     int
+	lastTime   time.Time
 }
 
 type bucket struct {
@@ -29,17 +47,18 @@ type bucket struct {
 	total   int64
 }
 
-func newRollingWindow(size int) *rollingWindow {
+func newRollingWindow(size int, bucketTime time.Duration) *rollingWindow {
 	return &rollingWindow{
-		buckets:  make([]bucket, size),
-		size:     size,
-		lastTime: time.Now(),
+		buckets:    make([]bucket, size),
+		size:       size,
+		bucketTime: bucketTime,
+		lastTime:   time.Now(),
 	}
 }
 
 func (rw *rollingWindow) advance() {
 	now := time.Now()
-	elapsed := int(now.Sub(rw.lastTime) / bucketTime)
+	elapsed := int(now.Sub(rw.lastTime) / rw.bucketTime)
 	if elapsed <= 0 {
 		return
 	}
@@ -75,13 +94,42 @@ func (rw *rollingWindow) sum() (accepts, total int64) {
 // GoogleBreaker Google SRE 风格熔断器
 // 丢弃概率: max(0, (requests - K * accepts) / (requests + 1))
 type GoogleBreaker struct {
-	window *rollingWindow
+	window  *rollingWindow
+	k       float64
+	minReqs int64
 }
 
 func NewGoogleBreaker() Breaker {
+	return NewGoogleBreakerWithConfig(DefaultGoogleBreakerConfig())
+}
+
+// NewGoogleBreakerWithConfig 使用指定配置创建熔断器。
+func NewGoogleBreakerWithConfig(config GoogleBreakerConfig) Breaker {
+	config = normalizeGoogleBreakerConfig(config)
+
 	return &GoogleBreaker{
-		window: newRollingWindow(buckets),
+		window:  newRollingWindow(config.Buckets, time.Duration(config.BucketTimeMs)*time.Millisecond),
+		k:       config.K,
+		minReqs: config.MinReqs,
 	}
+}
+
+func normalizeGoogleBreakerConfig(config GoogleBreakerConfig) GoogleBreakerConfig {
+	defaults := DefaultGoogleBreakerConfig()
+	if config.K <= 0 {
+		config.K = defaults.K
+	}
+	if config.Buckets <= 0 {
+		config.Buckets = defaults.Buckets
+	}
+	if config.BucketTimeMs <= 0 {
+		config.BucketTimeMs = defaults.BucketTimeMs
+	}
+	if config.MinReqs <= 0 {
+		config.MinReqs = defaults.MinReqs
+	}
+
+	return config
 }
 
 func (gb *GoogleBreaker) Allow() (Promise, error) {
@@ -113,7 +161,7 @@ func (gb *GoogleBreaker) DoWithAcceptable(req func() error, acceptable func(err 
 func (gb *GoogleBreaker) accept() error {
 	accepts, total := gb.window.sum()
 	// 请求量不足，不熔断
-	if total < minReqs {
+	if total < gb.minReqs {
 		return nil
 	}
 
@@ -131,7 +179,7 @@ func (gb *GoogleBreaker) accept() error {
 }
 
 func (gb *GoogleBreaker) dropRatio(accepts, total int64) float64 {
-	ratio := math.Max(0, (float64(total)-k*float64(accepts))/float64(total+1))
+	ratio := math.Max(0, (float64(total)-gb.k*float64(accepts))/float64(total+1))
 	return ratio
 }
 
