@@ -25,7 +25,7 @@ func UnaryMetricInterceptor() grpc.UnaryServerInterceptor {
 
 		logger := getLoggerSafe("grpc_metric")
 		if logger != nil {
-			logger.Info("grpc request",
+			logger.Debug("grpc request",
 				zap.String("method", info.FullMethod),
 				zap.String("code", code),
 				zap.Duration("duration", duration),
